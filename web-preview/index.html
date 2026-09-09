@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Belize Map — Phase 1 dev preview</title>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<style>
+  body { margin: 0; padding: 0; }
+  #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: '../styles/basic.json',
+    center: [-88.19, 17.4995], // Belize City
+    zoom: 13
+  });
+  map.addControl(new maplibregl.NavigationControl());
+  // Defensive: some embedding/preview contexts settle the container's final
+  // size asynchronously after construction, without firing a window resize
+  // event MapLibre would otherwise catch on its own.
+  window.addEventListener('load', () => map.resize());
+  new ResizeObserver(() => map.resize()).observe(document.getElementById('map'));
+</script>
+</body>
+</html>

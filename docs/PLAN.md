@@ -31,14 +31,14 @@ Build **one layer at a time, bottom-up**, exactly as the stack is layered in rea
 
 **Goal:** a pannable, zoomable map of the pilot region in a mobile app (iOS + Android), styled, with no search or routing yet.
 
-1. Import the pilot-region OSM extract via `osm2pgsql` into PostGIS.
-2. Generate vector tiles: PostGIS → GeoJSON/flatgeobuf → **Tippecanoe** → MBTiles, using the **OpenMapTiles** schema (or a trimmed-down subset of it — a pilot region doesn't need every layer OpenMapTiles defines for dense European cities).
-3. Serve tiles via **Martin** (or `tileserver-gl`) behind a CDN.
-4. Scaffold a **React Native** app with `@maplibre/maplibre-react-native`, loading a basic style JSON (roads, water, place labels, admin boundaries) — targets iOS + Android from one codebase.
-5. Add a **Sentinel-2** satellite-imagery raster layer as a togglable base-map option (free, commercial-use-permitted — see "Locked decisions").
-6. Stretch: a day/night or "tourist" alternate style, since swapping style JSON is nearly free once the tile pipeline exists.
+1. [x] Import the OSM extract via `osm2pgsql` into PostGIS. **Done** — full-country extract loaded (not just the pilot bboxes: only 18MB, no reason not to have the whole country in the canonical store; tile queries are still scoped to the pilot region at render time). See [backend/](../backend/).
+2. [x] ~~Generate vector tiles: PostGIS → GeoJSON/flatgeobuf → Tippecanoe → MBTiles~~ **Deviated from plan, deliberately**: Martin serves vector tiles **live, directly from PostGIS** (no Tippecanoe/MBTiles bake step). At this data size that's simpler to iterate on (data changes are visible immediately, no rebake) — the static-bake pipeline is deferred to Phase 5 (offline maps), where it belongs anyway. See [backend/README.md](../backend/README.md), including a **known Colima-networking gotcha** (direct Postgres connections from the host fail; HTTP to Martin works fine) and its workaround (`scripts/db_exec.sh`).
+3. [x] Serve tiles via **Martin** — done, configured via [`backend/martin-config.yaml`](../backend/martin-config.yaml) to publish only our tables. CDN fronting deferred until there's a real deployment target.
+4. **Blocked**: Scaffold a **React Native** app with `@maplibre/maplibre-react-native`. This machine has neither **Xcode** (only Command Line Tools — `xcodebuild` needs the full Xcode.app) nor **Android Studio/SDK** installed, so an RN app can't actually be built/run yet. Installing either is a real, possibly-interactive step (Xcode is a large App Store download, may need Apple ID/2FA) that needs your call on which to set up first — see the message accompanying this update. In the meantime, verified the *entire* rendering pipeline works via a throwaway web page instead (MapLibre GL JS, same tile server, same style) — see [web-preview/](../web-preview/) — real Belize City and Ambergris Caye/San Pedro data rendering correctly, confirmed interactive (pan/zoom via API). This is a dev-verification harness only, **not** a substitute for the locked mobile-first deliverable.
+5. [ ] Add a **Sentinel-2** satellite-imagery raster layer as a togglable base-map option (free, commercial-use-permitted — see "Locked decisions"). Not started.
+6. [ ] Stretch: a day/night or "tourist" alternate style. Not started.
 
-**Output:** a working map you can pan/zoom/toggle-satellite in a native iOS/Android app (simulator/emulator to start), covering the pilot region.
+**Output so far:** the full tile-serving pipeline is real and verified (screenshot-confirmed rendering of both pilot areas with roads/water/buildings/labels from live Belize OSM data). The mobile app itself — the actual Phase 1 deliverable per the locked platform decision — hasn't been scaffolded yet; deliberately held until the toolchain question below is resolved, so it can be scaffolded once and actually built/tested rather than written blind.
 
 ---
 

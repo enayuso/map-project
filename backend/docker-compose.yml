@@ -1,0 +1,39 @@
+# Phase 1 backend: PostGIS (the canonical geodata store, reused by later phases
+# for geocoding/routing too) + Martin (serves vector tiles straight from PostGIS).
+# Local dev only — credentials below are dev-only, not real secrets.
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: belize-postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: belize
+      POSTGRES_USER: belize
+      POSTGRES_PASSWORD: devpass123
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U belize -d belize"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    container_name: belize-martin
+    restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+    command: ["--config", "/config/martin-config.yaml"]
+    volumes:
+      - ./martin-config.yaml:/config/martin-config.yaml:ro
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgis_data:
