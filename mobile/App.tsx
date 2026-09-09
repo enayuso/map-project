@@ -36,6 +36,7 @@ import RoutePanel from './src/routing/RoutePanel';
 import NavigationBar from './src/routing/NavigationBar';
 import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
+import AttributionFooter from './src/attribution/AttributionFooter';
 import CategoryBar from './src/categories/CategoryBar';
 import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
 import { categoryLabel, haversineKm, type NearbyResult } from './src/categories/categories';
@@ -397,7 +398,12 @@ function App(): React.JSX.Element {
         // native map ornament, not an RN sibling view).
         compass
         compassHiddenFacingNorth
-        compassPosition={{ top: 60, right: 12 }}>
+        compassPosition={{ top: 60, right: 12 }}
+        // Using our own AttributionFooter (below) instead of MapLibre
+        // Native's built-in attribution button — see that component's own
+        // comment for why (a documented history of native-side crashes
+        // parsing HTML attribution strings out of style sources).
+        attribution={false}>
         <Camera
           ref={cameraRef}
           initialViewState={{ center: BELIZE_CITY, zoom: INITIAL_ZOOM }}
@@ -448,6 +454,8 @@ function App(): React.JSX.Element {
           </GeoJSONSource>
         )}
       </Map>
+
+      <AttributionFooter showSatelliteCredit={showSatellite} />
 
       {!navigationActive && (
         <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
