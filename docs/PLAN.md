@@ -64,15 +64,34 @@ Also surfaced a real dev-environment constraint worth carrying forward: this mac
 
 ## Phase 3 — POI / Business Data Platform
 
-**Goal:** move from "static OSM snapshot" to a living, maintainable place database.
+**Goal:** move from "static OSM snapshot" to a living, maintainable place database. Scoped 2026-09-09 after discussing what a Belize-specific data advantage would actually require — see [research/07-naver-kakao-proprietary-gis.md](research/07-naver-kakao-proprietary-gis.md) for why Naver/Kakao's own MMS-fleet route isn't the relevant comparison here (that tier is for autonomous-driving-grade HD maps; this project needs POI/road accuracy, a much lower and cheaper bar). Two complementary tracks, since they solve different problems:
 
-1. Design the place schema: name, category, coordinates, address (structured + informal-description field), phone, hours, verification status, source (OSM/self-registered/field-collected).
-2. Build a **lightweight self-registration flow** for business owners — phone OTP + storefront photo, deliberately *not* gated behind a business-registration certificate (Korea's model excludes too much of Belize's informal economy).
-3. Build a **crowdsourced "suggest an edit / report an error" flow** with a small human moderation queue — tiered verification (photo required for destructive edits like "mark closed"; lighter touch for additive edits).
-4. Build a **dedup/entity-resolution pass**: `pg_trgm` name-similarity + tight geo-distance threshold to flag likely duplicates, resolved via manual review (not full automation — volume doesn't justify it yet).
-5. Consider a modest non-cash incentive for contributions (badges/leaderboard) rather than Naver's cash-equivalent points model, until volume justifies a paid rewards system.
+### Track A — direct OSM contribution (zero build, start immediately)
 
-**Output:** owners and users can add/correct places; a moderator can clear a review queue; the POI index from Phase 2 stays fresh.
+Fixing genuinely objective map errors — a road with no name, a business that's moved or closed, a missing building — belongs *upstream in OSM itself*, not just in our own database: it benefits the whole OSM commons, and since our entire pipeline (`scripts/fetch_and_clip_osm.sh` → `osm2pgsql` → `scripts/build_poi_index.py`) re-imports from OSM, those fixes flow back into our own map/search/routing data for free on the next re-import — no new code needed to benefit from this.
+
+Two free, iOS-native OSM editor apps make this practical to do in the field, on a phone, without any custom tooling:
+- **[Every Door](https://apps.apple.com/us/app/every-door/id1621945342)** — purpose-built for exactly this: quickly add/edit shops, restaurants, and other POIs (name, category, hours, phone), mark places closed. The closest iOS equivalent to Android's well-known StreetComplete (confirmed StreetComplete itself has no iOS release yet, despite active porting work).
+- **[Go Map!!](https://github.com/bryceco/GoMap)** — the most-used general-purpose iOS OSM editor; better suited to road-level edits (naming the unnamed roads flagged in [research/06-pilot-region-data-audit.md](research/06-pilot-region-data-audit.md) — only 17% road-name completeness on Ambergris Caye — fixing this directly in OSM is probably the single highest-value use of field time).
+
+Both edit the real, public OpenStreetMap database directly (an OSM account is needed, free to create) — this is the same database every other OSM-based tool in the world reads from, this project included.
+
+### Track B — our own `places` platform (what actually needs building)
+
+OSM's data model deliberately doesn't hold things specific to *our* product: verification/freshness status, "claim your business" ownership, click-to-call-formatted contact info, review/rating layers, or anything else that isn't a neutral fact about the physical world. That needs a database we control. Also: any hand-edit made directly against Typesense today gets **silently wiped** on the next `scripts/reindex_pois.sh` run, since that script currently rebuilds straight from a fresh `planet_osm_point` export — there is no durable layer for edits to survive in yet. That's the actual gap this closes.
+
+1. **New canonical `places` table in PostGIS** — the single source of truth going forward, seeded once from the current OSM-derived POI set (same categorization logic `scripts/build_poi_index.py` already has, pointed at a new destination table instead of straight into Typesense). Schema: `id`, `name`, `category` (reuse the existing 18-category taxonomy), `lat`/`lon`, structured address fields + a free-text informal-description field (landmark-based addressing, per [research/01-data-collection.md](research/01-data-collection.md)), `phone`, `hours`, `website`, `verification_status` (`osm_import` | `field_verified` | `self_registered` | `crowd_suggested`), `source`, `created_at`/`updated_at`/`updated_by`.
+2. **A minimal write API** — recommend **PostgREST** (self-hosted, MIT-licensed, auto-generates a full REST CRUD API directly from the `places` table's schema with essentially zero custom backend code) over hand-writing a service, consistent with this project's established pattern of reaching for a proven self-hosted OSS tool before custom-building one. Add hand-written validation/business-rule logic later only where PostgREST's row-level access genuinely isn't enough (e.g. dedup-checking before insert — see item 4).
+3. **Typesense becomes a rebuildable cache of `places`, not of raw OSM** — `scripts/reindex_pois.sh` gets re-pointed to export from `places` instead of `planet_osm_point`, so edits/additions persist through reindexes instead of being silently overwritten. Raw OSM re-imports still feed `places` too, just as one more update source, not the only one.
+4. **A field-collection "＋ Add/Edit Place" flow in the mobile app itself** — tap the map or use current GPS location, a quick form (name + category required, everything else optional), save → hits the new PostgREST API. This is the first, personal-use version of what later becomes public self-registration/crowdsourcing — same underlying write path, just ungated for now since it's just us. Photo upload and offline queueing (useful given patchy rural connectivity, and `@react-native-async-storage/async-storage` is already integrated from the favorites feature — a local outbox is a natural fit) are real but deferred refinements, not required for a first version.
+5. **Public self-registration flow** for business owners — phone OTP + storefront photo, deliberately *not* gated behind a business-registration certificate (Korea's model excludes too much of Belize's informal economy) — once there's an actual user base to draw from.
+6. **Crowdsourced "suggest an edit / report an error" flow** with a small human moderation queue — tiered verification (photo required for destructive edits like "mark closed"; lighter touch for additive edits) — same reasoning, needs real traffic first.
+7. **Dedup/entity-resolution pass**: `pg_trgm` name-similarity + tight geo-distance threshold to flag likely duplicates, resolved via manual review (not full automation — volume doesn't justify it yet).
+8. Consider a modest non-cash incentive for contributions (badges/leaderboard) rather than Naver's cash-equivalent points model, once volume justifies it.
+
+**Recommended build order**: items 1-4 first (the durable database + write path + your own field-collection tool) — that's the part with no dependency on having real users yet, and it's what turns "I can go collect the data myself" into something that actually sticks instead of getting wiped on the next reindex. Items 5-8 wait for real usage.
+
+**Output:** places persist and survive reindexes; owners and users can eventually add/correct places; a moderator can clear a review queue; the POI index from Phase 2 stays fresh from a source we control, not just a frozen OSM snapshot.
 
 ---
 
