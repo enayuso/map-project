@@ -16,7 +16,9 @@ Build **one layer at a time, bottom-up**, exactly as the stack is layered in rea
 
 - [x] Geographic scope decided: pilot region, Belize City + Ambergris Caye/San Pedro corridor (see "Locked decisions")
 - [ ] Pull the Belize OpenStreetMap extract (Geofabrik/HOT export), clipped to the pilot region, and audit it: road coverage, POI density, address-tag completeness, admin-boundary completeness
-- [ ] Check Belize's National Spatial Data Infrastructure (BNSDI, portal.bnsdi.gov.bz) and the "Open Data for Belize" ArcGIS hub for any usable cadastral/admin-boundary/road layers to supplement OSM
+- [x] Verified BNSDI (portal.bnsdi.gov.bz) and the Land Information Centre (LIC) are real, active government bodies — see [research/05-belize-official-data-verification.md](research/05-belize-official-data-verification.md). Portal is currently unreachable (likely temporary outage, was up as recently as Apr 2026) and functions as a metadata catalog/viewer, not a bulk-download API.
+- [ ] Submit a formal data-sharing request to LIC's Belize City office ((501) 280-5263, Queen Street) for pilot-region cadastral/admin-boundary/road data — start this early, expect it to take real calendar time, don't block Phase 1 on it
+- [ ] Periodically recheck portal.bnsdi.gov.bz's Geo-Portal / Data Source Table for when it comes back online
 - [ ] Evaluate commercial imagery options (Maxar/Airbus/Planet tasking vs. free Sentinel-2/Landsat) against budget
 - [ ] Lock the tech stack (see "Recommended stack" below) and stand up local dev infra: PostGIS instance, project repo structure, CI
 - [ ] Confirm OSM's ODbL license obligations (attribution requirements) since OSM is the backbone data source
