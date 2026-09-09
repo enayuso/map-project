@@ -1,0 +1,114 @@
+{
+  "version": 8,
+  "name": "Belize Basic (Phase 1 dev style)",
+  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "sources": {
+    "polygons": {
+      "type": "vector",
+      "tiles": ["http://127.0.0.1:3000/planet_osm_polygon/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 16
+    },
+    "lines": {
+      "type": "vector",
+      "tiles": ["http://127.0.0.1:3000/planet_osm_line/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 16
+    },
+    "points": {
+      "type": "vector",
+      "tiles": ["http://127.0.0.1:3000/planet_osm_point/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 16
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#f5f2ea" }
+    },
+    {
+      "id": "natural-green",
+      "type": "fill",
+      "source": "polygons",
+      "source-layer": "planet_osm_polygon",
+      "filter": ["any", ["==", ["get", "natural"], "wood"], ["==", ["get", "landuse"], "forest"], ["==", ["get", "leisure"], "park"]],
+      "paint": { "fill-color": "#d3e8ce" }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "polygons",
+      "source-layer": "planet_osm_polygon",
+      "filter": ["any", ["==", ["get", "natural"], "water"], ["==", ["get", "landuse"], "reservoir"]],
+      "paint": { "fill-color": "#a9d3e5" }
+    },
+    {
+      "id": "buildings",
+      "type": "fill",
+      "source": "polygons",
+      "source-layer": "planet_osm_polygon",
+      "minzoom": 13,
+      "filter": ["has", "building"],
+      "paint": { "fill-color": "#d8d2c4", "fill-outline-color": "#b8b0a0" }
+    },
+    {
+      "id": "roads-casing",
+      "type": "line",
+      "source": "lines",
+      "source-layer": "planet_osm_line",
+      "filter": ["has", "highway"],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": [
+          "step", ["zoom"],
+          0.5,
+          10, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 3, ["tertiary", "unclassified", "residential"], 2, 1],
+          16, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 10, ["tertiary", "unclassified", "residential"], 7, 4]
+        ]
+      }
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "lines",
+      "source-layer": "planet_osm_line",
+      "filter": ["has", "highway"],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": [
+          "match", ["get", "highway"],
+          ["trunk", "primary"], "#e8a23d",
+          ["secondary", "tertiary"], "#f2c86b",
+          ["footway", "path", "pedestrian"], "#b9b0a0",
+          "#ffffff"
+        ],
+        "line-width": [
+          "step", ["zoom"],
+          0.3,
+          10, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 2, ["tertiary", "unclassified", "residential"], 1.2, 0.6],
+          16, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 8, ["tertiary", "unclassified", "residential"], 5, 2.5]
+        ]
+      }
+    },
+    {
+      "id": "place-labels",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "filter": ["has", "place"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 13
+      },
+      "paint": {
+        "text-color": "#3a3226",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2
+      }
+    }
+  ]
+}
