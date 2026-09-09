@@ -20,6 +20,12 @@
       "tiles": ["http://127.0.0.1:3000/planet_osm_point/{z}/{x}/{y}"],
       "minzoom": 0,
       "maxzoom": 16
+    },
+    "water-ocean": {
+      "type": "vector",
+      "tiles": ["http://127.0.0.1:3000/water_polygons/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 16
     }
   },
   "layers": [
@@ -27,6 +33,13 @@
       "id": "background",
       "type": "background",
       "paint": { "background-color": "#f5f2ea" }
+    },
+    {
+      "id": "sea",
+      "type": "fill",
+      "source": "water-ocean",
+      "source-layer": "water_polygons",
+      "paint": { "fill-color": "#a9d3e5" }
     },
     {
       "id": "natural-green",

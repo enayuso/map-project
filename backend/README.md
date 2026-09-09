@@ -72,3 +72,15 @@ docker cp belize-martin:/tmp/out.yaml /tmp/out.yaml
 ```
 
 Then copy just the `planet_osm_*` stanzas from `/tmp/out.yaml`'s `tables:` section into `martin-config.yaml` (leave out anything under the `tiger` schema).
+
+## `water_polygons` — the sea/ocean layer
+
+Not part of the standard osm2pgsql import above — it's loaded separately by [`scripts/import_water_polygons.sh`](../scripts/import_water_polygons.sh).
+
+**Why it's separate**: OSM tags coastline as *lines* (`natural=coastline` ways tracing the shore), not as a ready-made "ocean" polygon — there's no `natural=water` polygon for the sea itself anywhere in the raw data. Rendering the sea as water requires assembling those lines into closed polygons, which osm2pgsql's classic import doesn't do (confirmed: `planet_osm_line` has zero `natural=coastline` rows after import, even though the raw `.osm.pbf` has 2,202 of them — osm2pgsql's default style filters the tag out on purpose, since polygon assembly needs dedicated tooling).
+
+We tried the obvious dedicated tool (`osmcoastline`) directly on our own small Belize extract first, and it produced **wrong** results: it classified all of mainland Belize as water. Root cause: a country's coastline only forms a closed ring with help from its *land borders* with neighboring countries (Mexico, Guatemala) — data that isn't `natural=coastline`-tagged and isn't in our extract at all, so there's nothing for `osmcoastline`'s bounding-box-closing heuristic to close the ring against correctly. This is a known limitation of assembling coastline polygons from a small regional extract in isolation, not a bug in our command usage.
+
+**What actually works**: the community-maintained [pre-assembled global water polygon dataset](https://osmdata.openstreetmap.de/data/water-polygons.html) (ODbL, same license as the rest of our OSM data) — generated from the *full planet* file, so it has correct land-border context everywhere, Belize included. `scripts/import_water_polygons.sh` downloads it (~900MB, one-time), clips it down to just Belize's area, and loads the small result (~9MB, 7 polygon features) as its own `water_polygons` table — verified with point-in-polygon checks against a real Ambergris Caye business address (correctly on land) and a point in the open Caribbean (correctly water) before wiring it into Martin/the style.
+
+After running the script, add a `water_polygons` entry to `martin-config.yaml` (same shape as `planet_osm_polygon`, `geometry_type: MULTIPOLYGON`) and `docker compose restart martin`.
