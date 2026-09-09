@@ -1,0 +1,31 @@
+# Phase 2: Typesense POI/place search index (autocomplete, typo tolerance).
+# Joins the Phase 1 backend's Docker network so the indexing script can reach
+# both `postgis` (source data) and `typesense` (destination) by hostname.
+#
+# Local dev only — API key below is dev-only, not a real secret.
+
+services:
+  typesense:
+    image: typesense/typesense:29.0
+    container_name: belize-typesense
+    restart: unless-stopped
+    environment:
+      TYPESENSE_API_KEY: typesense_dev_local_only
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_ENABLE_CORS: "true"
+    volumes:
+      - typesense_data:/data
+    ports:
+      - "8108:8108"
+    networks:
+      default:
+      backend_net:
+
+networks:
+  default:
+  backend_net:
+    name: backend_default
+    external: true
+
+volumes:
+  typesense_data:

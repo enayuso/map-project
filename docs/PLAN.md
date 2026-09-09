@@ -51,10 +51,10 @@ Build **one layer at a time, bottom-up**, exactly as the stack is layered in rea
 2. [ ] **Deferred**: from-scratch admin-hierarchy gazetteer. Nominatim's own OSM-derived hierarchy (district → town/village → quarter → road) is already covering this reasonably well in testing — revisit only if real gaps show up, rather than building preemptively.
 3. [ ] **Deferred**: libpostal free-text normalization. Nominatim's built-in parsing handled every test query correctly without it. Revisit if messier real-world input (typos, abbreviations, mixed English/Spanish) proves insufficient.
 4. [x] Reverse geocoding — **done**, comes free with Nominatim (`/reverse` endpoint). Confirmed the nearest-feature-fallback behavior predicted in [research/03-geocoding-search.md](../docs/research/03-geocoding-search.md) actually happens in practice (an Ambergris Caye test point resolved via a nearby pier, not a road, but still returned a sensible address breakdown).
-5. [ ] Stand up **Typesense or Meilisearch** as the POI/place search index (lighter than Elasticsearch at Belize's data volume), seeded from OSM `amenity=*`/`shop=*`/`tourism=*` tags, with autocomplete and typo tolerance out of the box. — next up.
-6. [ ] Define a small, fixed **category taxonomy** (10–20 top-level categories, Kakao's 18-code model is a good template) mapped from the OSM tags that fed it.
+5. [x] Stand up **Typesense** as the POI/place search index — **done**, chosen over Meilisearch/Elasticsearch per the plan's own reasoning (see [research/03-geocoding-search.md](../docs/research/03-geocoding-search.md)). 3,363 named POIs indexed whole-country. Verified real typo tolerance (`Sinata` → "Sinatra Restaurant", not just prefix matching) and geo-radius search (489 results within 3km of Belize City) — zero special config needed, this is Typesense's default behavior. See [search/README.md](../search/README.md) and `scripts/reindex_pois.sh`.
+6. [x] Define a small, fixed **category taxonomy** — **done**, 18 categories (matches Kakao's model size), mapped from OSM tags in `scripts/build_poi_index.py`. Every document keeps its source OSM tag for traceability; unmapped-but-tagged POIs fall into `other` rather than vanishing. Real breakdown confirms this is genuine Belize data — a small `dive_watersports` category exists specifically because of Ambergris Caye's dive economy.
 
-**Output so far:** real forward/reverse geocoding working against live Belize data via Nominatim's HTTP API — the address/place-name half of Phase 2's goal. POI search (item 5) and the category taxonomy (item 6) are what's left before this phase is fully closed; the gazetteer and libpostal items turned out to be unnecessary so far given how well Nominatim performs out of the box.
+**Output:** Phase 2's goal — type an address or place name, get a pin — is now backed end-to-end: Nominatim handles addresses/places, Typesense handles POI search-as-you-type, both tested against live Belize data. The gazetteer and libpostal items were tried-and-found-unnecessary rather than skipped, which is worth trusting until real usage says otherwise. **Not yet done**: wiring either into the mobile app's UI (both are backend services only so far — Phase 2 delivered the data layer, not the search-box client component).
 
 ---
 
@@ -108,7 +108,7 @@ These require data that doesn't exist yet and shouldn't block earlier phases:
 | Client renderer | MapLibre Native, via React Native bindings (mobile-first) | License-clean (BSD), WebGL/OpenGL, same model as Naver/Kakao's modern SDKs; one codebase for iOS+Android |
 | Satellite imagery | Sentinel-2/Copernicus (free, commercial-use-permitted) for pilot | Upgrade to Maxar/Airbus/Planet only once budget allows post-pilot |
 | Geocoding | **Nominatim** (chosen over Pelias — faster to a working demo, sufficient so far without libpostal) | Mature OSS reference implementation of the exact algorithm shape Kakao/Naver use |
-| POI search | Typesense or Meilisearch | Lighter than Elasticsearch at Belize's POI volume, built-in typo tolerance |
+| POI search | **Typesense** (chosen over Meilisearch/Elasticsearch) | Lighter than Elasticsearch at Belize's POI volume, built-in typo tolerance verified working |
 | Routing | Valhalla or GraphHopper | Off-the-shelf CH/CCH-class performance is unnecessary at this scale; pick for profile flexibility + future live-traffic hooks |
 | Dedup | PostgreSQL `pg_trgm` + manual review queue | Volume doesn't justify ML entity resolution yet |
 
