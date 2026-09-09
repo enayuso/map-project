@@ -32,6 +32,7 @@ services:
     command: ["--config", "/config/martin-config.yaml"]
     volumes:
       - ./martin-config.yaml:/config/martin-config.yaml:ro
+      - ../data/satellite:/data/satellite:ro
     ports:
       - "3000:3000"
 

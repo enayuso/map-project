@@ -2,6 +2,16 @@
 # tiger_geocoder demo schema. Regenerate the `tables:` block with:
 #   docker exec belize-martin martin --save-config /tmp/out.yaml <connection_string>
 # if the schema changes (e.g. after re-importing with different osm2pgsql options).
+
+# Satellite basemap (see scripts/build_satellite_mosaic.sh) — a pre-baked
+# raster tile pyramid, not PostGIS-backed like everything else here. Martin
+# serves MBTiles files directly (just passes the stored PNG/WebP bytes
+# through, no on-the-fly rendering), so no separate raster tile server is
+# needed alongside it.
+mbtiles:
+  sources:
+    satellite: /data/satellite/belize_satellite.mbtiles
+
 postgres:
   connection_string: postgres://belize:devpass123@postgis:5432/belize
   auto_publish: false

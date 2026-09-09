@@ -1,0 +1,198 @@
+{
+  "version": 8,
+  "name": "Belize Hybrid (satellite + roads/labels)",
+  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "sources": {
+    "satellite": {
+      "type": "raster",
+      "tiles": ["http://127.0.0.1:3000/satellite/{z}/{x}/{y}"],
+      "tileSize": 256,
+      "minzoom": 9,
+      "maxzoom": 14
+    },
+    "lines": {
+      "type": "vector",
+      "tiles": ["http://127.0.0.1:3000/planet_osm_line/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 16
+    },
+    "points": {
+      "type": "vector",
+      "tiles": ["http://127.0.0.1:3000/planet_osm_point/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 16
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#0b2e3d" }
+    },
+    {
+      "id": "satellite",
+      "type": "raster",
+      "source": "satellite",
+      "paint": { "raster-fade-duration": 0 }
+    },
+    {
+      "id": "country-border",
+      "type": "line",
+      "source": "lines",
+      "source-layer": "planet_osm_line",
+      "filter": ["all", ["==", ["get", "boundary"], "administrative"], ["==", ["get", "admin_level"], "2"]],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#ffd54a",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1.5, 8, 2.5, 14, 4],
+        "line-dasharray": [3, 2]
+      }
+    },
+    {
+      "id": "roads-casing",
+      "type": "line",
+      "source": "lines",
+      "source-layer": "planet_osm_line",
+      "filter": ["has", "highway"],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#000000",
+        "line-opacity": 0.35,
+        "line-width": [
+          "step", ["zoom"],
+          0.5,
+          10, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 3, ["tertiary", "unclassified", "residential"], 2, 1],
+          16, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 10, ["tertiary", "unclassified", "residential"], 7, 4]
+        ]
+      }
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "lines",
+      "source-layer": "planet_osm_line",
+      "filter": ["has", "highway"],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": [
+          "match", ["get", "highway"],
+          ["trunk", "primary"], "#ffb74d",
+          ["secondary", "tertiary"], "#ffe0a3",
+          ["footway", "path", "pedestrian"], "#e0dccf",
+          "#ffffff"
+        ],
+        "line-width": [
+          "step", ["zoom"],
+          0.3,
+          10, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 2, ["tertiary", "unclassified", "residential"], 1.2, 0.6],
+          16, ["match", ["get", "highway"], ["trunk", "primary", "secondary"], 8, ["tertiary", "unclassified", "residential"], 5, 2.5]
+        ]
+      }
+    },
+    {
+      "id": "place-labels-major",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "filter": ["==", ["get", "place"], "city"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Bold"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 4, 12, 10, 16]
+      },
+      "paint": {
+        "text-color": "#ffffff",
+        "text-halo-color": "#000000",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "place-labels-town",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 7,
+      "filter": ["==", ["get", "place"], "town"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 13
+      },
+      "paint": {
+        "text-color": "#ffffff",
+        "text-halo-color": "#000000",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "place-labels-village",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 10,
+      "filter": ["==", ["get", "place"], "village"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 12
+      },
+      "paint": {
+        "text-color": "#ffffff",
+        "text-halo-color": "#000000",
+        "text-halo-width": 1.1
+      }
+    },
+    {
+      "id": "place-labels-minor",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 13,
+      "filter": ["in", ["get", "place"], ["literal", ["hamlet", "locality", "suburb", "neighbourhood", "quarter"]]],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11
+      },
+      "paint": {
+        "text-color": "#f0ede4",
+        "text-halo-color": "#000000",
+        "text-halo-width": 1
+      }
+    },
+    {
+      "id": "poi-circles",
+      "type": "circle",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 15,
+      "filter": ["any", ["has", "amenity"], ["has", "shop"], ["has", "tourism"]],
+      "paint": {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 15, 3, 18, 6],
+        "circle-color": "#ffab40",
+        "circle-stroke-width": 1.2,
+        "circle-stroke-color": "#000000"
+      }
+    },
+    {
+      "id": "poi-labels",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 16,
+      "filter": ["all", ["any", ["has", "amenity"], ["has", "shop"], ["has", "tourism"]], ["has", "name"]],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11,
+        "text-anchor": "top",
+        "text-offset": [0, 0.6]
+      },
+      "paint": {
+        "text-color": "#ffe0b2",
+        "text-halo-color": "#000000",
+        "text-halo-width": 1.2
+      }
+    }
+  ]
+}

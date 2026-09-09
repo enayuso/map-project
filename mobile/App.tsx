@@ -28,6 +28,7 @@ import {
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
 import basicStyle from './src/styles/basic.json';
+import hybridStyle from './src/styles/hybrid.json';
 import SearchBox from './src/search/SearchBox';
 import { searchNearby, type SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type LatLon, type RouteResult } from './src/routing/api';
@@ -100,6 +101,13 @@ function App(): React.JSX.Element {
   const cameraRef = useRef<CameraRef>(null);
   const mapRef = useRef<MapRef>(null);
   const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
+
+  // --- Basemap toggle (satellite/hybrid) ---
+  // Swaps the whole mapStyle object rather than toggling individual layers'
+  // visibility — MapLibre Native reloads sources/layers on a style change
+  // but keeps the current camera position, so this is simpler than managing
+  // per-layer visibility state ourselves for the same result.
+  const [showSatellite, setShowSatellite] = useState(false);
 
   // --- Favorites + recent searches ---
   // Persisted locally (see src/places/favorites.ts) — loaded once on mount,
@@ -339,7 +347,7 @@ function App(): React.JSX.Element {
       <Map
         ref={mapRef}
         style={styles.map}
-        mapStyle={basicStyle as any}
+        mapStyle={(showSatellite ? hybridStyle : basicStyle) as any}
         onPress={handleMapPress}
         onRegionDidChange={e => setCurrentZoom(e.nativeEvent.zoom)}
         // Native compass control: appears when the map is rotated away from
@@ -441,6 +449,17 @@ function App(): React.JSX.Element {
 
       <Pressable style={styles.locateButton} onPress={handleLocateMe}>
         <Text style={styles.locateButtonText}>📍</Text>
+      </Pressable>
+
+      {/*
+       * Basemap toggle: satellite imagery + roads/labels overlaid on top
+       * ("hybrid", matching Kakao's 스카이뷰/Naver's satellite view) vs. our
+       * normal vector map. See backend/martin-config.yaml's "satellite"
+       * source and scripts/build_satellite_mosaic.sh for where the imagery
+       * comes from.
+       */}
+      <Pressable style={styles.satelliteButton} onPress={() => setShowSatellite(v => !v)}>
+        <Text style={styles.satelliteButtonText}>{showSatellite ? '🗺️' : '🛰️'}</Text>
       </Pressable>
 
       <PlaceCard
@@ -582,6 +601,25 @@ const styles = StyleSheet.create({
   },
   locateButtonText: {
     fontSize: 22,
+  },
+  satelliteButton: {
+    position: 'absolute',
+    bottom: 197,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  satelliteButtonText: {
+    fontSize: 20,
   },
 });
 

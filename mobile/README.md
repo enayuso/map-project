@@ -52,6 +52,14 @@ Also fixed one existing behavior that would have undercut this: `SearchBox` used
 
 **Verified**: TypeScript/ESLint clean. The native module's own storage directory (`RCTAsyncLocalStorage_V1`) shows up in the device log after the rebuild with zero errors — direct evidence it's actually initializing and persisting, not just failing silently. App relaunches and renders correctly post-rebuild. The save/tap-through itself still needs a manual real-Simulator.app check, per issue 7 below.
 
+### Satellite/hybrid basemap toggle (Phase 4.5)
+
+A 🛰️/🗺️ button (above the zoom control) swaps the entire map style between the normal vector map and a new "hybrid" style — Sentinel-2 satellite imagery with roads, the country border, and place labels layered on top in colors chosen to stay legible over photographic imagery, the same idea as Kakao's 스카이뷰/Naver's satellite view. It's a full `mapStyle` swap (`basicStyle` ↔ `hybridStyle`, both bundled JSON, see `src/styles/hybrid.json`), not per-layer visibility toggling — simpler, and MapLibre Native keeps the camera position across the swap on its own.
+
+The imagery itself is a real, from-scratch data pipeline — see [backend/README.md](../backend/README.md)'s `satellite` section and `scripts/build_satellite_mosaic.sh` for the full story (free Sentinel-2 data sourcing, mosaicking ~20 tiles, baking an MBTiles pyramid, serving it through Martin). Only the client side lives here: `App.tsx`'s `showSatellite` state and the toggle button.
+
+**Verified**: TypeScript/ESLint clean. Martin confirmed serving real satellite tile content — fetched and visually decoded tiles over both Belize City and the Ambergris Caye reef directly, not just checked for a 200 status. Style JSON valid, app relaunches without crashing, toggle button renders in the right spot. A "hooks order" warning briefly seen in the device log during this work was confirmed to belong to a stale process from an earlier hot-reload mid-edit, not the current build (checked by filtering the log to the running process's own PID — zero errors there). The actual tap-to-toggle switch still needs a manual real-Simulator.app check, per issue 7 below.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))
