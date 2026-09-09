@@ -40,6 +40,14 @@ import { categoryLabel, haversineKm, type NearbyResult } from './src/categories/
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
 const BELIZE_CITY: [number, number] = [-88.19, 17.4995];
+const INITIAL_ZOOM = 13;
+
+// Zoom-button bounds. 3 is roughly "see the whole country" (Belize is small
+// enough that you rarely need to go wider); 19 is building-level, past which
+// our vector tiles (maxzoom 16 in styles/basic.json) just get upscaled with
+// no new detail, same tradeoff Kakao/Naver's own zoom buttons make.
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 19;
 
 /** Turns a tapped "poi-circles" vector-tile feature into a SearchResult-
  * shaped place, so it can flow through the same PlaceCard/Directions path
@@ -63,6 +71,20 @@ function App(): React.JSX.Element {
   const cameraRef = useRef<CameraRef>(null);
   const mapRef = useRef<MapRef>(null);
   const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
+
+  // --- Zoom control ---
+  // Tracks the live zoom level (kept in sync via onRegionDidChange below, so
+  // it reflects pinch-zooms and every flyTo/easeTo elsewhere in the app, not
+  // just these buttons) so the +/- buttons can clamp at the bounds and grey
+  // themselves out there, the way Kakao/Naver's own zoom control does.
+  const [currentZoom, setCurrentZoom] = useState(INITIAL_ZOOM);
+
+  const handleZoomIn = () => {
+    cameraRef.current?.zoomTo(Math.min(currentZoom + 1, MAX_ZOOM), { duration: 250 });
+  };
+  const handleZoomOut = () => {
+    cameraRef.current?.zoomTo(Math.max(currentZoom - 1, MIN_ZOOM), { duration: 250 });
+  };
 
   // --- Location state ---
   // Deferred until the user actually taps "locate me", so we don't prompt
@@ -259,6 +281,7 @@ function App(): React.JSX.Element {
         style={styles.map}
         mapStyle={basicStyle as any}
         onPress={handleMapPress}
+        onRegionDidChange={e => setCurrentZoom(e.nativeEvent.zoom)}
         // Native compass control: appears when the map is rotated away from
         // north, hides itself when facing north again, and resets bearing
         // to north when tapped — all built into MapLibre Native, no custom
@@ -268,7 +291,7 @@ function App(): React.JSX.Element {
         compass
         compassHiddenFacingNorth
         compassPosition={{ top: 60, right: 12 }}>
-        <Camera ref={cameraRef} initialViewState={{ center: BELIZE_CITY, zoom: 13 }} />
+        <Camera ref={cameraRef} initialViewState={{ center: BELIZE_CITY, zoom: INITIAL_ZOOM }} />
 
         {locationEnabled && <NativeUserLocation mode="heading" />}
 
@@ -325,6 +348,29 @@ function App(): React.JSX.Element {
         {routingActive && origin && !destination && (
           <Text style={styles.hint}>Now tap the map or search for your destination</Text>
         )}
+      </View>
+
+      {/*
+       * Zoom control: a stacked +/- pill on the right edge, same shape as
+       * Kakao/Naver's own zoom buttons. Pinch-to-zoom and double-tap-zoom
+       * already work natively (MapLibre's touchZoom/doubleTapZoom defaults)
+       * — this is the explicit-tap alternative both apps also offer
+       * alongside gestures, not a replacement for them.
+       */}
+      <View style={styles.zoomControl}>
+        <Pressable
+          style={[styles.zoomButton, currentZoom >= MAX_ZOOM && styles.zoomButtonDisabled]}
+          onPress={handleZoomIn}
+          disabled={currentZoom >= MAX_ZOOM}>
+          <Text style={styles.zoomButtonText}>＋</Text>
+        </Pressable>
+        <View style={styles.zoomDivider} />
+        <Pressable
+          style={[styles.zoomButton, currentZoom <= MIN_ZOOM && styles.zoomButtonDisabled]}
+          onPress={handleZoomOut}
+          disabled={currentZoom <= MIN_ZOOM}>
+          <Text style={styles.zoomButtonText}>－</Text>
+        </Pressable>
       </View>
 
       <Pressable style={styles.locateButton} onPress={handleLocateMe}>
@@ -418,6 +464,37 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
     alignSelf: 'flex-start',
+  },
+  zoomControl: {
+    position: 'absolute',
+    bottom: 92,
+    right: 16,
+    width: 48,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  zoomButton: {
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  zoomButtonDisabled: {
+    opacity: 0.35,
+  },
+  zoomButtonText: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#3a3226',
+  },
+  zoomDivider: {
+    height: 1,
+    backgroundColor: '#f0ede4',
   },
   locateButton: {
     position: 'absolute',

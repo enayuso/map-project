@@ -28,6 +28,12 @@ The chip bar itself (`CategoryBar.tsx`) is a plain absolutely-positioned overlay
 
 **Verified**: the exact Typesense query (`filter_by=category:=X && location:(lat,lon,8 km)`, `sort_by=location(lat,lon):asc`) was run directly against the live backend outside the app and confirmed correct — 53 restaurants within 8km of Belize City, correctly sorted by `geo_distance_meters`. TypeScript and ESLint both clean. App relaunches without crashing and the chip bar renders correctly. Automated tap-through on an actual chip did not register at all this attempt (confirmed via Typesense's own request logs showing nothing arrived) — a milder version of issue 7's unreliability rather than a code defect, since the query itself is independently verified working. Needs the same manual real-Simulator.app pass as everything else in this list.
 
+### Zoom control (Phase 4.5)
+
+A stacked +/− pill button on the right edge, above the 📍 locate button — same placement and shape as Kakao/Naver's own zoom control. Each tap calls `cameraRef.current.zoomTo(zoom ± 1, { duration: 250 })` (a real `CameraRef` method, confirmed against `@maplibre/maplibre-react-native`'s own `.d.ts` rather than assumed); the live zoom level is tracked via the `<Map onRegionDidChange>` event (also confirmed against the library's types: `ViewStateChangeEvent.zoom`), so the buttons grey themselves out at the configured bounds (zoom 3-19) and stay in sync with pinch-zooms, double-tap-zooms, and every other camera move in the app (search selection, category browsing, locate-me), not just their own taps. Pinch-to-zoom and double-tap-zoom keep working as before — MapLibre's own defaults, untouched — this is the explicit-button alternative both Kakao and Naver offer alongside gestures, not a replacement for them.
+
+**Verified**: TypeScript/ESLint clean, app relaunches without crashing, button renders in the correct position with the right visual state. Automated tap-through didn't produce a visible zoom change on this attempt — the same input-reliability limitation as issue 7/the category-bar note above, not a code defect (the underlying API calls are confirmed real and correctly typed). Needs a manual real-Simulator.app check.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))
