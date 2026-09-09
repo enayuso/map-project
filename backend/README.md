@@ -98,21 +98,3 @@ Belize spans ~20 Sentinel-2 MGRS tiles (100km × 100km each, 200-350MB as Cloud-
 **Zoom range**: built for zoom 9-14 only, not 0-14 — `mobile/App.tsx`'s `MIN_ZOOM` is 9 (see its own zoomed-out-UX comment), so there's no reachable use for lower-zoom overview tiles. Native resolution (~10m/pixel) caps out at zoom 14; MapLibre upscales past that like any other capped tile source.
 
 Re-running `scripts/build_satellite_mosaic.sh` (e.g. for fresher/less cloudy imagery later) overwrites `data/satellite/belize_satellite.mbtiles` in place — no `martin-config.yaml` change needed, just `docker compose restart martin`.
-
-## `places` — the canonical POI/business table (Phase 3 Track B)
-
-The first piece of this backend that isn't read-only reference data. Every other table (`planet_osm_*`, `water_polygons`) is derived from a bulk import and treated as disposable/regenerable; `places` is the opposite — it's meant to accumulate real edits over time (see `docs/PLAN.md` Phase 3), so it's set up deliberately differently:
-
-**Schema**: [`places-schema.sql`](places-schema.sql) — `id` (uuid), `osm_id` (nullable — set only for OSM-seeded rows), `name`, `category`, `geom` (`geometry(Point, 4326)`), `address_text`/`address_description`, `phone`/`hours`/`website`, `verification_status` (`osm_import` | `field_verified` | `self_registered` | `crowd_suggested`), `source`, timestamps. Apply/reapply it with:
-```bash
-../scripts/db_exec.sh psql -c "$(cat places-schema.sql)"
-```
-(idempotent — safe to rerun after editing the file).
-
-**Write API**: a `postgrest` service (this compose file) exposes `places` as a REST API on **`http://127.0.0.1:3001`** — full CRUD (`GET`/`POST`/`PATCH`/`DELETE /places`), auto-generated directly from the table schema, zero custom backend code. It connects as a dedicated `places_api` role that can only see a single-view `api` schema (`api.places`, wrapping `public.places`) — deliberately **not** the shared `belize` role every other service uses, so PostgREST can't accidentally expose `planet_osm_*`/`water_polygons` as writable REST endpoints too (PostgREST auto-exposes every table/view its connecting role can see in its configured schema).
-
-**No auth yet** — every request runs as `places_api` (no JWT configured), matching this project's existing local-only dev security posture (Typesense/Nominatim/Valhalla are equally open on `127.0.0.1` today). This is fine for now (single trusted operator, not reachable outside this Mac) but **must** get real per-request auth before `places` is ever reachable by the public — i.e., before Phase 3 items 5+ (self-registration/crowdsourcing), not before.
-
-**Seeding from OSM**: [`scripts/seed_places_from_osm.sh`](../scripts/seed_places_from_osm.sh) exports named POIs from `planet_osm_point` (same query `reindex_pois.sh` used to use directly), categorizes them via `scripts/build_poi_index.py`'s `categorize()` (imported, not duplicated), and upserts into `places` (keyed on `osm_id`, so it's safe to rerun after a fresh OSM re-import — existing OSM-seeded rows update in place, verified: reran it immediately after the first seed and got the same row count with HTTP 200s instead of 201s). Rows it creates start `verification_status='osm_import'`.
-
-**Typesense is now a cache of `places`, not of raw OSM**: `scripts/reindex_pois.sh` was re-pointed to export from `places` instead of `planet_osm_point` directly — so edits/additions made via the write API (or the mobile app's Add/Edit Place flow) survive a reindex instead of being silently overwritten by the next one. Run `seed_places_from_osm.sh` first (to pull in fresh OSM data) then `reindex_pois.sh` (to refresh search) when you want both in sync.

@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 """
-Phase 2 (originally) / Phase 3 Track B (now): build the Typesense POI/place
-search index. As of Phase 3, Typesense is a rebuildable CACHE of the
-canonical `places` table (scripts/reindex_pois.sh exports from `places`,
-not raw OSM directly) — so edits/additions made via the PostgREST API
-survive a reindex instead of being silently overwritten. `categorize()`
-below is still used directly by scripts/seed_places_from_osm.py, which is
-the thing that actually populates `places.category` from raw OSM tags in
-the first place — one taxonomy, used in both places (no pun intended).
+Phase 2: build the Typesense POI/place search index from the Phase 1 PostGIS
+data. Run after `scripts/db_exec.sh` has exported named POI points to CSV
+(see search/README.md for the full pipeline).
 
 Category taxonomy: a small, fixed, consumer-facing enum (~18 categories,
 sized like Kakao's category_group_code model per docs/research/03-geocoding-
 search.md) mapped from OSM amenity=*/shop=*/tourism=* tags. Every mapped
-POI keeps its source for traceability (docs/PLAN.md Phase 2 item 6).
+POI keeps its source OSM tag for traceability (docs/PLAN.md Phase 2 item 6).
 """
 
 import csv
@@ -96,7 +91,7 @@ def ensure_collection():
         "fields": [
             {"name": "name", "type": "string"},
             {"name": "category", "type": "string", "facet": True},
-            {"name": "source", "type": "string"},
+            {"name": "osm_tag", "type": "string"},
             {"name": "location", "type": "geopoint"},
         ],
     }
@@ -108,21 +103,18 @@ def ensure_collection():
 
 
 def load_documents(csv_path: str):
-    # Reads places (id, name, category, source, lat, lon) — category is
-    # already computed (by seed_places_from_osm.py, at write time into
-    # `places`), not re-derived here. This function just mirrors the
-    # canonical table into Typesense's search-optimized shape.
     docs = []
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
         for row in reader:
-            place_id, name, category, source, lat, lon = row
+            osm_id, name, amenity, shop, tourism, lat, lon = row
+            category, osm_tag = categorize(amenity, shop, tourism)
             docs.append({
-                "id": place_id,
+                "id": osm_id,
                 "name": name,
-                "category": category or "other",
-                "source": source,
+                "category": category,
+                "osm_tag": osm_tag,
                 "location": [float(lat), float(lon)],
             })
 

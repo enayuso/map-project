@@ -1,7 +1,5 @@
 # Phase 1 backend: PostGIS (the canonical geodata store, reused by later phases
 # for geocoding/routing too) + Martin (serves vector tiles straight from PostGIS).
-# Phase 3: + PostgREST (a REST write API over the `places` table — see
-# places-schema.sql and docs/PLAN.md Phase 3).
 # Local dev only — credentials below are dev-only, not real secrets.
 
 services:
@@ -37,26 +35,6 @@ services:
       - ../data/satellite:/data/satellite:ro
     ports:
       - "3000:3000"
-
-  postgrest:
-    image: postgrest/postgrest:latest
-    container_name: belize-postgrest
-    restart: unless-stopped
-    depends_on:
-      postgis:
-        condition: service_healthy
-    environment:
-      # Connects as the least-privilege `places_api` role (places-schema.sql)
-      # — can only see the `api` schema, which exposes nothing but the
-      # `places` view. No JWT/auth configured, so every request runs as this
-      # one role (see places-schema.sql's comment on why that's acceptable
-      # for now — local-only, single trusted operator — and what has to
-      # change before this is ever public).
-      PGRST_DB_URI: postgres://places_api:placesapi_dev_local_only@postgis:5432/belize
-      PGRST_DB_SCHEMA: api
-      PGRST_DB_ANON_ROLE: places_api
-    ports:
-      - "3001:3000"
 
 volumes:
   postgis_data:

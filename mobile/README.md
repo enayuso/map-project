@@ -76,16 +76,6 @@ A small, always-visible, tappable footer at the bottom of the map (`src/attribut
 
 **Verified**: TypeScript/ESLint clean, confirmed rendering correctly via simulator screenshot — visible, legible, underlined to signal it's a link, positioned clear of the MapLibre logo and other controls.
 
-### Field data collection — Add/Edit Place (Phase 3 Track B)
-
-A dark "＋" button (bottom-left, clear of the MapLibre logo and hidden mid-routing/navigation) opens `src/places/AddEditPlaceModal.tsx` — a quick form (name, category, phone, hours, website, an informal/landmark address field) that creates a new place at the current map center via `src/places/placesApi.ts`, which talks to the PostgREST write API on `http://127.0.0.1:3001` (see `backend/README.md`'s `places` section). New places are created `verification_status='field_verified'` — you're standing there confirming it, so it starts more trusted than a bulk OSM import.
-
-**Editing** works the same way from an existing place's card — a "✎" button next to the ★ favorite button, but **only when the place is reliably one of ours to edit**: `placesApi.ts`'s `placeIdFromSearchResultId()` recovers the real `places.id` UUID from a search/category-browsing result's id (Typesense's own document id *is* `places.id` as of Phase 3 Track B), and the edit button is simply omitted — not shown disabled — for anything that isn't backed by a confirmed `places` row: a Nominatim address result, or a POI tapped directly on the map (sourced from the raw vector tile, not guaranteed to have a matching `places` row — e.g. unnamed POIs render as dots but were never seeded, since seeding requires a name). Editing those is a deliberate v1 gap, not an oversight.
-
-**What "saved" means right now**: writes go straight to the canonical `places` table and are real/durable immediately. They do *not* appear in search/category-browsing results until the next `scripts/reindex_pois.sh` run, since Typesense is a periodically-rebuilt cache, not a live view — expected behavior for this phase, not a bug (see `backend/README.md`).
-
-**Verified**: TypeScript/ESLint clean, app relaunches without crashing, button renders in the correct position (moved once already, to clear the MapLibre logo it initially overlapped). The write path itself was verified directly against the real PostgREST API, independent of the UI — a full create → read → update → delete round trip via `curl`, confirming records persist correctly and `updated_at` advances on edit (the schema's trigger, not app code, keeps that accurate). The actual tap-through — pressing "＋", filling in the form, saving — still needs your manual check in the real Simulator.app, per issue 7 below.
-
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

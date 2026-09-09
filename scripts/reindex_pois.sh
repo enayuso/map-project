@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
-# Full POI-index pipeline: export from the canonical `places` table (Phase 3
-# Track B — not raw OSM directly, since Phase 2) and (re)load into Typesense.
-# `places` is the source of truth; this script just mirrors it into
-# Typesense's search-optimized shape, so edits/additions made via the
-# PostgREST API survive a reindex instead of being silently overwritten.
-# To pull in new/changed OSM data first, run scripts/seed_places_from_osm.sh
-# before this.
+# Full Phase 2 POI-index pipeline: export named POI points from PostGIS,
+# categorize them, and (re)load them into Typesense.
 # Requires: backend/ (PostGIS) and search/ (Typesense) stacks both running.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CSV_PATH="/tmp/pois_raw.csv"
 
-echo "==> Exporting places from PostGIS..."
+echo "==> Exporting named POI points from PostGIS..."
 "$ROOT_DIR/scripts/db_exec.sh" psql -A -F',' -c "
 COPY (
-  SELECT id, name, category, COALESCE(source, ''),
-         ST_Y(geom), ST_X(geom)
-  FROM places
+  SELECT osm_id, COALESCE(name,''), COALESCE(amenity,''), COALESCE(shop,''), COALESCE(tourism,''),
+         ST_Y(ST_Transform(way,4326)), ST_X(ST_Transform(way,4326))
+  FROM planet_osm_point
+  WHERE (amenity IS NOT NULL OR shop IS NOT NULL OR tourism IS NOT NULL)
+    AND name IS NOT NULL AND name <> ''
 ) TO STDOUT WITH (FORMAT csv, HEADER true)
 " > "$CSV_PATH"
 
