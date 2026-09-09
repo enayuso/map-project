@@ -27,7 +27,7 @@
 **Naver/Kakao status (mixed, partly inferred)**:
 - **Kakao Map**: calls itself a "vector map," but independent teardown (Clien forum analysis via NamuWiki) shows the **web version still serves 256px raster PNG tiles** with rotation/zoom *animation* layered on top — pixelation persists under rotation, diagnostic of a raster base. The **mobile app reportedly switched to genuine vector tiles ~2022**. Not confirmed by an official Kakao engineering post.
 - **Naver Map**: legacy `MapTypeId.NORMAL/SATELLITE/HYBRID/TERRAIN` are explicitly raster (`ImageMapType`/`getTile`, per [official docs](https://navermaps.github.io/maps.js.ncp/docs/tutorial-MapTypes.html)). The newer "StyleMap" product (NCP's "Web Dynamic Map API" + Map Style Editor) moves toward client-styleable rendering.
-- **Neither company publishes an engineering deep-dive** on tile format/rendering internals — treat this area as partially inferred.
+- **Update (2026-09-09)**: this "no engineering deep-dive" gap is now partly closed — see [07-naver-kakao-proprietary-gis.md](07-naver-kakao-proprietary-gis.md). Kakao Mobility's own engineering blog describes Kakao Navi's rendering SDK (KNMSDK) in real technical depth: a shared C++ core, a custom graphics abstraction over Metal/Vulkan/OpenGL ES, and — notably — **FlatBuffers rather than MVT/protobuf** for their tile format. Naver's rendering internals remain largely undisclosed beyond the coordinate-system migration noted above.
 
 **Implication for Belize:** Vector tiles (MVT) are the correct default — one pipeline serves day/night/satellite-label-only/print styles from the same data, which matters when data volume and dev budget are both small. Raster is only worth keeping for the satellite-imagery layer itself (inherently raster/orthophoto).
 
@@ -41,7 +41,7 @@
 - **Static/batch**: PostGIS layers → GeoJSON/flatgeobuf → **Tippecanoe** builds a zoom pyramid into a single **MBTiles** (SQLite) file, with automatic simplification/feature-dropping per zoom. **OpenMapTiles** defines the widely-adopted open schema (layer names, zoom-based generalization rules) most self-hosted MVT stacks reuse. ([tippecanoe README](https://github.com/mapbox/tippecanoe/blob/master/README.md), [OpenMapTiles schema](https://openmaptiles.org/schema/))
 - **Dynamic/on-the-fly**: **tegola**, **Martin**, or **pg_tileserv** query PostGIS live and emit MVT per request. Benchmarks found **Martin fastest** (Rust, uses PostGIS's native `ST_AsMVT`), pg_tileserv close behind, tegola slowest. ([comparison](https://dev.to/mierune/comparing-postgis-backend-vectortile-servers-tegolamartinpgtileserv-5c6n))
 
-**Naver/Kakao infra specifics**: no public Naver D2 or Kakao tech blog post describing tile-generation/serving infra was found — a genuine disclosure gap, not to be assumed to mirror the OSM/Mapbox stack.
+**Naver/Kakao infra specifics**: no public Naver D2 or Kakao tech blog post describing tile-generation/serving infra was found at the time this section was written — a genuine disclosure gap, not to be assumed to mirror the OSM/Mapbox stack. **Update**: [07-naver-kakao-proprietary-gis.md](07-naver-kakao-proprietary-gis.md) found that Kakao Mobility's own backend for integrating address/building/land data runs on plain **PostgreSQL with PostGIS-style spatial joins** — the tile-*generation* pipeline specifically is still undisclosed, but the underlying spatial database is not some more sophisticated proprietary system, it's the same class of tool this project already uses.
 
 **Implication for Belize:** A **static Tippecanoe → MBTiles** pipeline is almost certainly the right economical choice — Belize's entire OSM extract is tiny (a few hundred MB at most). Pre-bake one MBTiles per style/zoom-range, serve via **Martin** or **tileserver-gl** behind a CDN (even free-tier), and re-run Tippecanoe on a schedule (e.g., nightly) as data updates — no need to run a live PostGIS-backed dynamic server at Belize's scale.
 
@@ -95,8 +95,9 @@ A **style** is a single JSON document (Mapbox Style Spec, now the de facto open 
 | Internal projection (legacy UTMK_NAVER) | Confirmed (official docs) | Not disclosed | Naver: high; Kakao: unknown |
 | New tiles on EPSG:3857 | Confirmed (official) | Unknown | Naver: high |
 | Raster legacy tiles | Confirmed | Confirmed (community teardown) | High |
-| True vector rendering today | Inferred/partial | Inferred (app: yes since 2022; web: raster+animation per community) | Medium — no engineering-blog confirmation |
-| Tile generation/serving infra | Not found publicly | Not found publicly | Low — genuine disclosure gap |
+| True vector rendering today | Inferred/partial | **Confirmed for Kakao Navi** (KNMSDK: C++ core, custom GPU abstraction) per [07-naver-kakao-proprietary-gis.md](07-naver-kakao-proprietary-gis.md); Kakao Map app itself still inferred | Kakao Navi: high (primary source); Kakao Map app: medium |
+| Tile format | Not found publicly | **FlatBuffers**, not MVT/protobuf (KNMSDK) — see [07-naver-kakao-proprietary-gis.md](07-naver-kakao-proprietary-gis.md) | High for Kakao Navi |
+| Tile generation/serving infra | Not found publicly | Backend spatial database confirmed as **PostgreSQL/PostGIS**; tile-*generation* pipeline itself still undisclosed | Medium (database layer); low (generation pipeline) |
 | Offline caching implementation | Not found publicly | Not found publicly | Low |
 
 ### Recommended Belize Stack

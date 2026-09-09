@@ -23,6 +23,8 @@ A map platform like Naver Map or Kakao Map is really **four stacked systems**, e
 
 Each layer's full detail is in its own file: [01-data-collection.md](research/01-data-collection.md), [02-map-rendering.md](research/02-map-rendering.md), [03-geocoding-search.md](research/03-geocoding-search.md), [04-routing-traffic.md](research/04-routing-traffic.md).
 
+**Follow-up (2026-09-09)**: [07-naver-kakao-proprietary-gis.md](research/07-naver-kakao-proprietary-gis.md) digs specifically into how Naver/Kakao's *proprietary* GIS systems are built — their mapping-vehicle/robot fleets, Kakao Mobility's own disclosed rendering-engine architecture (KNMSDK) and confirmed PostgreSQL/PostGIS backend, and their routing/HD-map ML pipelines. Headline: their spatial database layer is the same class of open-source tooling this project already uses — the real, hard-to-replicate difference is the scale of their data-collection operations, not fundamentally different core architecture.
+
 ## The single biggest finding
 
 **Naver and Kakao don't build most of their base data themselves — they sit on top of Korean government infrastructure that has no Belizean equivalent**, and separately benefit from a **regulatory wall (Korea's map-export restriction law) that has no Belizean equivalent either.**
