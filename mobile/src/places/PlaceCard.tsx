@@ -15,6 +15,12 @@ type Props = {
   onClose: () => void;
   onDirections: () => void;
   onToggleFavorite: () => void;
+  /** Present only when App.tsx has confirmed this place is one we can
+   * reliably edit (a places.id-backed search/category result — see
+   * placesApi.ts's placeIdFromSearchResultId). Omitted entirely (not just
+   * disabled) for anything else, e.g. a Nominatim result or a bare
+   * map-tapped POI, rather than showing an edit button that would fail. */
+  onEdit?: () => void;
 };
 
 export default function PlaceCard({
@@ -24,6 +30,7 @@ export default function PlaceCard({
   onClose,
   onDirections,
   onToggleFavorite,
+  onEdit,
 }: Props) {
   return (
     <Modal transparent visible={!!place} animationType="slide" onRequestClose={onClose}>
@@ -43,6 +50,11 @@ export default function PlaceCard({
                   {isFavorite ? '★' : '☆'}
                 </Text>
               </Pressable>
+              {onEdit && (
+                <Pressable style={styles.favoriteButton} onPress={onEdit}>
+                  <Text style={styles.favoriteLabel}>✎</Text>
+                </Pressable>
+              )}
               <Pressable style={styles.closeButton} onPress={onClose}>
                 <Text style={styles.closeLabel}>✕</Text>
               </Pressable>

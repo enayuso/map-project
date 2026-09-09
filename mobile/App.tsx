@@ -36,6 +36,8 @@ import RoutePanel from './src/routing/RoutePanel';
 import NavigationBar from './src/routing/NavigationBar';
 import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
+import AddEditPlaceModal, { type EditTarget } from './src/places/AddEditPlaceModal';
+import { placeIdFromSearchResultId } from './src/places/placesApi';
 import AttributionFooter from './src/attribution/AttributionFooter';
 import CategoryBar from './src/categories/CategoryBar';
 import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
@@ -104,6 +106,39 @@ function App(): React.JSX.Element {
   const cameraRef = useRef<CameraRef>(null);
   const mapRef = useRef<MapRef>(null);
   const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
+
+  // --- Phase 3 Track B: field data collection ---
+  // Persists to the canonical `places` table (backend/places-schema.sql via
+  // PostgREST) — see docs/PLAN.md Phase 3 and src/places/placesApi.ts.
+  const [placeFormVisible, setPlaceFormVisible] = useState(false);
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [newPlaceLocation, setNewPlaceLocation] = useState<LatLon | null>(null);
+
+  const handleAddPlace = async () => {
+    const center = await mapRef.current?.getCenter();
+    if (!center) return;
+    const [lon, lat] = center;
+    setEditTarget(null);
+    setNewPlaceLocation({ lat, lon });
+    setPlaceFormVisible(true);
+  };
+
+  const handleEditSelectedPlace = () => {
+    if (!selectedPlace) return;
+    const placeId = placeIdFromSearchResultId(selectedPlace.id);
+    if (!placeId) return; // not editable — see placeIdFromSearchResultId
+    setEditTarget({ placeId, name: selectedPlace.name, category: selectedPlace.subtitle });
+    setPlaceFormVisible(true);
+  };
+
+  const handlePlaceSaved = () => {
+    setPlaceFormVisible(false);
+    setEditTarget(null);
+    // Not re-fetched into Typesense automatically — search/category results
+    // stay a snapshot until the next scripts/reindex_pois.sh run, same
+    // "cache rebuilds periodically" model as the rest of Phase 3 Track B.
+    setSelectedPlace(null);
+  };
 
   // --- Basemap toggle (satellite/hybrid) ---
   // Swaps the whole mapStyle object rather than toggling individual layers'
@@ -520,6 +555,18 @@ function App(): React.JSX.Element {
       </Pressable>
 
       {/*
+       * Field data collection (Phase 3 Track B, docs/PLAN.md): adds a new
+       * place at the current map center. Hidden mid-routing/navigation,
+       * where a map tap already means something else (set origin/
+       * destination) and this would just be confusing alongside it.
+       */}
+      {!routingActive && !navigationActive && (
+        <Pressable style={styles.addPlaceButton} onPress={handleAddPlace}>
+          <Text style={styles.addPlaceButtonText}>＋</Text>
+        </Pressable>
+      )}
+
+      {/*
        * Basemap toggle: satellite imagery + roads/labels overlaid on top
        * ("hybrid", matching Kakao's 스카이뷰/Naver's satellite view) vs. our
        * normal vector map. See backend/martin-config.yaml's "satellite"
@@ -537,6 +584,17 @@ function App(): React.JSX.Element {
         onClose={() => setSelectedPlace(null)}
         onDirections={() => selectedPlace && startDirectionsTo(selectedPlace)}
         onToggleFavorite={handleToggleFavorite}
+        onEdit={
+          selectedPlace && placeIdFromSearchResultId(selectedPlace.id) ? handleEditSelectedPlace : undefined
+        }
+      />
+
+      <AddEditPlaceModal
+        visible={placeFormVisible}
+        editTarget={editTarget}
+        location={newPlaceLocation}
+        onClose={() => setPlaceFormVisible(false)}
+        onSaved={handlePlaceSaved}
       />
 
       <CategoryResultsSheet
@@ -670,6 +728,27 @@ const styles = StyleSheet.create({
   },
   locateButtonText: {
     fontSize: 22,
+  },
+  addPlaceButton: {
+    position: 'absolute',
+    bottom: 92, // clears the native MapLibre logo ornament that sits at bottom-left
+    left: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3a3226',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  addPlaceButtonText: {
+    fontSize: 26,
+    color: '#ffffff',
+    fontWeight: '600',
   },
   satelliteButton: {
     position: 'absolute',
