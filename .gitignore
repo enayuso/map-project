@@ -1,0 +1,45 @@
+# macOS
+.DS_Store
+
+# Node / React Native
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.expo/
+*.jsbundle
+
+# iOS
+ios/Pods/
+ios/build/
+*.xcworkspace
+!default.xcworkspace
+*.xcuserstate
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+*.keystore
+!debug.keystore
+
+# Python (data pipeline scripts)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data files (large, regenerable — fetched/built by Phase 0/1 scripts, not committed)
+data/raw/
+data/tiles/
+*.osm.pbf
+*.mbtiles
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
