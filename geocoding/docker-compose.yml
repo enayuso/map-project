@@ -1,0 +1,28 @@
+# Phase 2: Nominatim geocoding (address/place -> coordinates, and reverse).
+# Self-contained: this image bundles its own Postgres, entirely separate from
+# the Phase 1 backend/ Postgres (Nominatim needs its own purpose-built schema,
+# not our osm2pgsql planet_osm_* tables).
+#
+# Local dev only — password below is dev-only, not a real secret.
+
+services:
+  nominatim:
+    image: mediagis/nominatim:5.3.2
+    container_name: belize-nominatim
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      PBF_PATH: /data/belize-latest.osm.pbf
+      NOMINATIM_PASSWORD: nominatim_dev_local_only
+      # Belize is tiny — no need for the multi-hour "import-full-planet" defaults.
+      NOMINATIM_IMPORT_STYLE: full
+      IMPORT_WIKIPEDIA: "false"
+      FREEZE: "true"
+    ports:
+      - "8082:8080"
+    volumes:
+      - nominatim_data:/var/lib/postgresql/16/main
+      - ../data/raw:/data:ro
+
+volumes:
+  nominatim_data:

@@ -47,14 +47,14 @@ Build **one layer at a time, bottom-up**, exactly as the stack is layered in rea
 
 **Goal:** type an address or place name, get a pin.
 
-1. Stand up **Nominatim** (fastest to a working demo) or **Pelias** (more customizable, heavier to operate) on top of the same PostGIS data.
-2. Build the missing piece neither tool gets for free in Belize: a **from-scratch admin-hierarchy gazetteer** (district → town/village → street), since there's no government equivalent to import.
-3. Layer in **libpostal** for free-text address parsing (its English/Spanish coverage suits Belize's bilingual context).
-4. Implement reverse geocoding: point-in-polygon against whatever admin boundaries exist, falling back to nearest-road-segment snapping (PostGIS `ST_ClosestPoint`/`ST_LineLocatePoint`) with a distance-based confidence score — expect most lookups to hit the fallback tier, since building/parcel polygons won't exist for most of the country.
-5. Stand up **Typesense or Meilisearch** as the POI/place search index (lighter than Elasticsearch at Belize's data volume), seeded from OSM `amenity=*`/`shop=*`/`tourism=*` tags, with autocomplete and typo tolerance out of the box.
-6. Define a small, fixed **category taxonomy** (10–20 top-level categories, Kakao's 18-code model is a good template) mapped from the OSM tags that fed it.
+1. [x] Stand up **Nominatim** — **done**, chose Nominatim over Pelias (much faster to a working demo, Pelias's multi-service Elasticsearch-backed architecture is overkill at Belize's scale). Full import runs in under 2 minutes. Verified with real queries against both pilot areas (forward search, disambiguation, reverse geocoding with nearest-fallback) — see [geocoding/README.md](../geocoding/README.md) and `scripts/test_geocoding.sh`. Hit and fixed a real bug: Colima's default VM (2GB RAM) couldn't fit Postgres's shared-memory request; resized to 4GB/4CPU.
+2. [ ] **Deferred**: from-scratch admin-hierarchy gazetteer. Nominatim's own OSM-derived hierarchy (district → town/village → quarter → road) is already covering this reasonably well in testing — revisit only if real gaps show up, rather than building preemptively.
+3. [ ] **Deferred**: libpostal free-text normalization. Nominatim's built-in parsing handled every test query correctly without it. Revisit if messier real-world input (typos, abbreviations, mixed English/Spanish) proves insufficient.
+4. [x] Reverse geocoding — **done**, comes free with Nominatim (`/reverse` endpoint). Confirmed the nearest-feature-fallback behavior predicted in [research/03-geocoding-search.md](../docs/research/03-geocoding-search.md) actually happens in practice (an Ambergris Caye test point resolved via a nearby pier, not a road, but still returned a sensible address breakdown).
+5. [ ] Stand up **Typesense or Meilisearch** as the POI/place search index (lighter than Elasticsearch at Belize's data volume), seeded from OSM `amenity=*`/`shop=*`/`tourism=*` tags, with autocomplete and typo tolerance out of the box. — next up.
+6. [ ] Define a small, fixed **category taxonomy** (10–20 top-level categories, Kakao's 18-code model is a good template) mapped from the OSM tags that fed it.
 
-**Output:** a search box on top of the Phase 1 map that resolves addresses and place names to pins.
+**Output so far:** real forward/reverse geocoding working against live Belize data via Nominatim's HTTP API — the address/place-name half of Phase 2's goal. POI search (item 5) and the category taxonomy (item 6) are what's left before this phase is fully closed; the gazetteer and libpostal items turned out to be unnecessary so far given how well Nominatim performs out of the box.
 
 ---
 
@@ -107,7 +107,7 @@ These require data that doesn't exist yet and shouldn't block earlier phases:
 | Tile serving | Martin (or tileserver-gl) + CDN | Fast, low-ops, handles both static MBTiles and PMTiles |
 | Client renderer | MapLibre Native, via React Native bindings (mobile-first) | License-clean (BSD), WebGL/OpenGL, same model as Naver/Kakao's modern SDKs; one codebase for iOS+Android |
 | Satellite imagery | Sentinel-2/Copernicus (free, commercial-use-permitted) for pilot | Upgrade to Maxar/Airbus/Planet only once budget allows post-pilot |
-| Geocoding | Nominatim or Pelias + libpostal | Mature OSS reference implementations of the exact algorithm shape Kakao/Naver use |
+| Geocoding | **Nominatim** (chosen over Pelias — faster to a working demo, sufficient so far without libpostal) | Mature OSS reference implementation of the exact algorithm shape Kakao/Naver use |
 | POI search | Typesense or Meilisearch | Lighter than Elasticsearch at Belize's POI volume, built-in typo tolerance |
 | Routing | Valhalla or GraphHopper | Off-the-shelf CH/CCH-class performance is unnecessary at this scale; pick for profile flexibility + future live-traffic hooks |
 | Dedup | PostgreSQL `pg_trgm` + manual review queue | Volume doesn't justify ML entity resolution yet |
