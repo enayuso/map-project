@@ -14,6 +14,12 @@ Tap **🧭 Directions**, then either tap two points on the map or use the search
 - **Current location**: tap 📍 (bottom-right) to center the map on the device's current position — uses MapLibre Native's built-in `useCurrentPosition`/`<NativeUserLocation>`, no extra geolocation package. Location tracking only starts on first tap, so the permission prompt doesn't fire before it's needed. On the Simulator, set a fake GPS location first: `xcrun simctl location <udid> set <lat>,<lon>` (the Simulator has no real GPS).
 - **Compass**: built into MapLibre Native (`compass`, `compassHiddenFacingNorth`, `compassPosition` props on `<Map>`) — appears only when the map is rotated, hides at north, and resets bearing on tap, all native behavior with zero custom code. Confirmed the hide-at-north behavior works (no compass visible at the default view).
 
+### Place cards + tap-to-query POIs (Phase 4.5)
+
+Tap any place — a search result, or a POI dot rendered directly on the map — to get a bottom-sheet card (`src/places/PlaceCard.tsx`) with its name/category, a live travel-time preview from your current position (via the same Valhalla `fetchRoute` routing uses), and Directions/Close buttons. Map-tap hit-testing uses MapLibre Native's built-in `mapRef.current.queryRenderedFeatures(point, {layers: ['poi-circles']})` against the new `poi-circles` layer in `src/styles/basic.json` (businesses/amenities/tourism points, zoom 15+) — previously the style only rendered settlement/neighborhood labels, nothing individually tappable. Search results and map-tapped POIs both normalize to the same `SearchResult` shape, so one card component handles both. Tapping "Directions" on a card feeds it straight into the existing routing flow as the destination.
+
+**Verified**: TypeScript compiles clean against the real `@maplibre/maplibre-react-native` type definitions (checked `MapRef.queryRenderedFeatures` and `PressEvent.point` directly in the library's `.d.ts` rather than assuming the shape). App relaunches and renders without crashing — pure JS + style-JSON change, no native rebuild needed. Interactive tap-through still needs a manual pass in the real Simulator.app, per issue 7 below — this session's own attempt at automated verification hit issue 7 again (see there).
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

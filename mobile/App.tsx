@@ -1,8 +1,10 @@
 /**
  * Belize Map — Phase 1 (base map) + Phase 2 (search) + Phase 4 (routing)
  * MapLibre Native map pointed at our own PostGIS + Martin tile backend,
- * with a search box (Nominatim + Typesense, see src/search/) and turn-by-
- * turn directions (Valhalla, see src/routing/).
+ * with a search box (Nominatim + Typesense, see src/search/), turn-by-turn
+ * directions (Valhalla, see src/routing/), and tap-to-view place details
+ * for both search results and POIs rendered directly on the map (see
+ * src/places/).
  *
  * Coverage: all four backend services (tiles, geocoding, POI search,
  * routing) were built from the full-country OSM extract, not just the
@@ -22,6 +24,7 @@ import {
   NativeUserLocation,
   useCurrentPosition,
   type CameraRef,
+  type MapRef,
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
 import basicStyle from './src/styles/basic.json';
@@ -29,14 +32,34 @@ import SearchBox from './src/search/SearchBox';
 import type { SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type LatLon, type RouteResult } from './src/routing/api';
 import RoutePanel from './src/routing/RoutePanel';
+import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
 const BELIZE_CITY: [number, number] = [-88.19, 17.4995];
 
+/** Turns a tapped "poi-circles" vector-tile feature into a SearchResult-
+ * shaped place, so it can flow through the same PlaceCard/Directions path
+ * as a search result. Point geometry only — that's all this layer renders. */
+function placeFromFeature(feature: GeoJSON.Feature): SearchResult | null {
+  if (feature.geometry.type !== 'Point') return null;
+  const [lon, lat] = feature.geometry.coordinates as [number, number];
+  const props = feature.properties ?? {};
+  const category = props.amenity || props.shop || props.tourism || 'place';
+  return {
+    id: `poi-${props.osm_id ?? `${lon},${lat}`}`,
+    name: props.name || String(category).replace(/_/g, ' '),
+    subtitle: String(category).replace(/_/g, ' '),
+    lat,
+    lon,
+    kind: 'poi',
+  };
+}
+
 function App(): React.JSX.Element {
   const cameraRef = useRef<CameraRef>(null);
-  const [pin, setPin] = useState<SearchResult | null>(null);
+  const mapRef = useRef<MapRef>(null);
+  const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
 
   // --- Location state ---
   // Deferred until the user actually taps "locate me", so we don't prompt
@@ -83,6 +106,29 @@ function App(): React.JSX.Element {
       .finally(() => setRouteLoading(false));
   }, [origin, destination, costing]);
 
+  // --- Place card travel-time preview ---
+  // Kakao/Naver show "X min away" the moment you open a place card. We can
+  // only do that once the user has enabled location at least once — no
+  // silent fallback to a fixed point, since that would misrepresent an
+  // actual live estimate.
+  const [travelPreview, setTravelPreview] = useState<TravelPreview>({ status: 'unavailable' });
+
+  useEffect(() => {
+    if (!selectedPlace) return;
+    if (!currentPosition) {
+      setTravelPreview({ status: 'unavailable' });
+      return;
+    }
+    setTravelPreview({ status: 'loading' });
+    fetchRoute(
+      { lat: currentPosition.coords.latitude, lon: currentPosition.coords.longitude },
+      { lat: selectedPlace.lat, lon: selectedPlace.lon },
+      'auto',
+    )
+      .then(r => setTravelPreview({ status: 'ready', distanceKm: r.distanceKm, durationMin: r.durationMin }))
+      .catch(() => setTravelPreview({ status: 'error' }));
+  }, [selectedPlace, currentPosition]);
+
   const handleSelect = (result: SearchResult) => {
     if (routingActive) {
       if (!origin) {
@@ -92,23 +138,41 @@ function App(): React.JSX.Element {
       }
       return;
     }
-    setPin(result);
+    setSelectedPlace(result);
     cameraRef.current?.flyTo({ center: [result.lon, result.lat], zoom: 16, duration: 1200 });
   };
 
-  const handleMapPress = (event: NativeSyntheticEvent<PressEvent>) => {
-    if (!routingActive) return;
-    const [lon, lat] = event.nativeEvent.lngLat;
-    if (!origin) {
-      setOrigin({ lat, lon });
-    } else if (!destination) {
-      setDestination({ lat, lon });
-    } else {
-      // Both already set — a new tap starts a fresh route.
-      setOrigin({ lat, lon });
-      setDestination(null);
-      setRoute(null);
+  const handleMapPress = async (event: NativeSyntheticEvent<PressEvent>) => {
+    if (routingActive) {
+      const [lon, lat] = event.nativeEvent.lngLat;
+      if (!origin) {
+        setOrigin({ lat, lon });
+      } else if (!destination) {
+        setDestination({ lat, lon });
+      } else {
+        // Both already set — a new tap starts a fresh route.
+        setOrigin({ lat, lon });
+        setDestination(null);
+        setRoute(null);
+      }
+      return;
     }
+
+    // Not routing: see if the user tapped a POI dot rendered on the map
+    // itself (not just a search result) — the other half of "tap a place,
+    // see its details" that Kakao/Naver rely on constantly.
+    const features = await mapRef.current?.queryRenderedFeatures(event.nativeEvent.point, {
+      layers: ['poi-circles'],
+    });
+    const place = features && features.length > 0 ? placeFromFeature(features[0]) : null;
+    setSelectedPlace(place);
+  };
+
+  const startDirectionsTo = (place: SearchResult) => {
+    setSelectedPlace(null);
+    setRoutingActive(true);
+    setOrigin(null);
+    setDestination({ lat: place.lat, lon: place.lon });
   };
 
   const toggleRouting = () => {
@@ -117,11 +181,12 @@ function App(): React.JSX.Element {
       clearRoute();
     } else {
       setRoutingActive(true);
-      // If a place is already pinned from search, use it as the
-      // destination right away — the common "search, then get
-      // directions to it" flow.
-      if (pin) {
-        setDestination({ lat: pin.lat, lon: pin.lon });
+      // If a place is already selected (from search or a map tap), use it
+      // as the destination right away — the common "look at a place, then
+      // get directions to it" flow.
+      if (selectedPlace) {
+        setDestination({ lat: selectedPlace.lat, lon: selectedPlace.lon });
+        setSelectedPlace(null);
       }
     }
   };
@@ -133,11 +198,12 @@ function App(): React.JSX.Element {
     setRouteError(null);
   };
 
-  const showPanel = routingActive && (routeLoading || !!route || !!routeError);
+  const showRoutePanel = routingActive && (routeLoading || !!route || !!routeError);
 
   return (
     <View style={styles.container}>
       <Map
+        ref={mapRef}
         style={styles.map}
         mapStyle={basicStyle as any}
         onPress={handleMapPress}
@@ -154,8 +220,8 @@ function App(): React.JSX.Element {
 
         {locationEnabled && <NativeUserLocation mode="heading" />}
 
-        {pin && !routingActive && (
-          <Marker lngLat={[pin.lon, pin.lat]}>
+        {selectedPlace && !routingActive && (
+          <Marker lngLat={[selectedPlace.lon, selectedPlace.lat]}>
             <View style={styles.pin} />
           </Marker>
         )}
@@ -203,8 +269,15 @@ function App(): React.JSX.Element {
         <Text style={styles.locateButtonText}>📍</Text>
       </Pressable>
 
+      <PlaceCard
+        place={routingActive ? null : selectedPlace}
+        travelPreview={travelPreview}
+        onClose={() => setSelectedPlace(null)}
+        onDirections={() => selectedPlace && startDirectionsTo(selectedPlace)}
+      />
+
       <RoutePanel
-        visible={showPanel}
+        visible={showRoutePanel}
         loading={routeLoading}
         error={routeError}
         route={route}
