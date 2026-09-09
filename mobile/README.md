@@ -1,6 +1,12 @@
 # mobile (BelizeMap)
 
-React Native app (0.87.1) + `@maplibre/maplibre-react-native` (11.3.10), rendering the same [PostGIS + Martin backend](../backend/) and [style](../styles/basic.json) already proven out in [web-preview/](../web-preview/). See [docs/PLAN.md](../docs/PLAN.md) Phase 1 for context.
+React Native app (0.87.1) + `@maplibre/maplibre-react-native` (11.3.10), rendering the same [PostGIS + Martin backend](../backend/) and [style](../styles/basic.json) already proven out in [web-preview/](../web-preview/). Also wires up search ([search/](../search/) + [geocoding/](../geocoding/), see `src/search/`) and turn-by-turn directions ([routing/](../routing/), see `src/routing/`). See [docs/PLAN.md](../docs/PLAN.md) for phase context.
+
+### Directions (Phase 4)
+
+Tap **🧭 Directions**, then either tap two points on the map or use the search box to set a start and end point (first pick = origin, second = destination — searching while a place is already pinned uses it as the destination immediately, the "search then get directions to it" flow). Renders the route line, distance/duration, a ferry badge when relevant, and the turn-by-turn instruction list in a bottom sheet; a costing switcher (🚗/🚶/🚲) re-fetches the same trip with a different profile.
+
+**Verified**: the client-side polyline decoding + Valhalla response parsing (`src/routing/api.ts`) was checked directly against a real `/route` response outside the UI — the first decoded coordinate matched the query's origin exactly, the last matched the destination, and all 65 points along the route fell inside Belize's bounding box. The UI wiring itself (button → map taps → route line + panel) renders without crashing, but — per issue 7 below — needs a manual tap-through in the real Simulator.app to fully confirm, the same way Phase 2's search box did.
 
 ## Running it (iOS Simulator)
 
