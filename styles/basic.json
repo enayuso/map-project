@@ -67,6 +67,19 @@
       "paint": { "fill-color": "#d8d2c4", "fill-outline-color": "#b8b0a0" }
     },
     {
+      "id": "country-border",
+      "type": "line",
+      "source": "lines",
+      "source-layer": "planet_osm_line",
+      "filter": ["all", ["==", ["get", "boundary"], "administrative"], ["==", ["get", "admin_level"], "2"]],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#9c3b3b",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1.5, 8, 2.5, 14, 4],
+        "line-dasharray": [3, 2]
+      }
+    },
+    {
       "id": "roads-casing",
       "type": "line",
       "source": "lines",
@@ -107,11 +120,29 @@
       }
     },
     {
-      "id": "place-labels",
+      "id": "place-labels-major",
       "type": "symbol",
       "source": "points",
       "source-layer": "planet_osm_point",
-      "filter": ["has", "place"],
+      "filter": ["==", ["get", "place"], "city"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Bold"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 4, 12, 10, 16]
+      },
+      "paint": {
+        "text-color": "#3a3226",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "place-labels-town",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 7,
+      "filter": ["==", ["get", "place"], "town"],
       "layout": {
         "text-field": ["get", "name"],
         "text-font": ["Noto Sans Regular"],
@@ -121,6 +152,42 @@
         "text-color": "#3a3226",
         "text-halo-color": "#ffffff",
         "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "place-labels-village",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 10,
+      "filter": ["==", ["get", "place"], "village"],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 12
+      },
+      "paint": {
+        "text-color": "#3a3226",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.1
+      }
+    },
+    {
+      "id": "place-labels-minor",
+      "type": "symbol",
+      "source": "points",
+      "source-layer": "planet_osm_point",
+      "minzoom": 13,
+      "filter": ["in", ["get", "place"], ["literal", ["hamlet", "locality", "suburb", "neighbourhood", "quarter"]]],
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11
+      },
+      "paint": {
+        "text-color": "#7a7362",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1
       }
     },
     {

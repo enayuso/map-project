@@ -42,12 +42,34 @@ import { categoryLabel, haversineKm, type NearbyResult } from './src/categories/
 const BELIZE_CITY: [number, number] = [-88.19, 17.4995];
 const INITIAL_ZOOM = 13;
 
-// Zoom-button bounds. 3 is roughly "see the whole country" (Belize is small
-// enough that you rarely need to go wider); 19 is building-level, past which
-// our vector tiles (maxzoom 16 in styles/basic.json) just get upscaled with
-// no new detail, same tradeoff Kakao/Naver's own zoom buttons make.
-const MIN_ZOOM = 3;
+// Zoom bounds — applied to both the +/- buttons AND pinch/double-tap zoom
+// (via <Camera minZoom/maxZoom> below). Unlike Kakao/Naver we don't have
+// global basemap coverage, just Belize's own OSM extract, so zooming out
+// indefinitely would eventually show a hard, ugly edge where our data (and
+// the "sea" polygon backing styles/basic.json's water fix) just stops. 9
+// is calibrated, not arbitrary: the visible viewport at zoom 9 on this
+// screen size (~2.3° tall) fits comfortably inside the sea layer's own
+// ~2.85°-tall extent when centered anywhere near the initial view or the
+// middle of the country — which covers ordinary browsing. It's not an
+// absolute guarantee: panning all the way to the far north (near Corozal)
+// or south (near Punta Gorda) while *also* fully zoomed out can still peek
+// past the edge slightly, since MAX_BOUNDS below deliberately stays wide
+// enough to keep those real towns reachable rather than shrinking the pan
+// range just to close that last sliver. 19 is building-level, past which
+// our vector tiles (maxzoom 16) just get upscaled with no new detail — the
+// same tradeoffs Kakao/Naver's own zoom limits make, just calibrated to
+// our smaller data footprint.
+const MIN_ZOOM = 9;
 const MAX_ZOOM = 19;
+
+// Matches the "sea" layer's real data extent (see scripts/import_water_
+// polygons.sh) — restricts panning so the map center can't wander into the
+// "outside our coverage" void beyond it. Deliberately NOT shrunk tighter
+// than that (e.g. to fully guarantee no edge at MIN_ZOOM): every real town
+// we've tested navigation to — including Corozal and Punta Gorda at the
+// country's northern/southern extremes — needs to stay reachable.
+// [west, south, east, north].
+const MAX_BOUNDS: [number, number, number, number] = [-89.35, 15.75, -86.75, 18.6];
 
 /** Turns a tapped "poi-circles" vector-tile feature into a SearchResult-
  * shaped place, so it can flow through the same PlaceCard/Directions path
@@ -291,7 +313,13 @@ function App(): React.JSX.Element {
         compass
         compassHiddenFacingNorth
         compassPosition={{ top: 60, right: 12 }}>
-        <Camera ref={cameraRef} initialViewState={{ center: BELIZE_CITY, zoom: INITIAL_ZOOM }} />
+        <Camera
+          ref={cameraRef}
+          initialViewState={{ center: BELIZE_CITY, zoom: INITIAL_ZOOM }}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
+          maxBounds={MAX_BOUNDS}
+        />
 
         {locationEnabled && <NativeUserLocation mode="heading" />}
 
