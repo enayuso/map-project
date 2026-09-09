@@ -80,13 +80,15 @@ Also surfaced a real dev-environment constraint worth carrying forward: this mac
 
 **Goal:** turn-by-turn directions between two points.
 
-1. Stand up **Valhalla** or **GraphHopper** (preferred over OSRM for profile flexibility and future live-traffic hooks) against the Belize OSM extract.
-2. Configure car/walk/bike routing profiles.
-3. Validate turn restrictions/one-way tagging against ground truth in a few known-tricky areas (Belize OSM tagging is assumed sparse here — spot-check, don't just trust the import).
-4. Wire up the engine's built-in **map matching** (HMM/Viterbi) for "snap to road" + turn-by-turn instruction generation — this is a packaged feature, not custom work.
-5. ETA: ship **static, free-flow-speed-based estimates** (posted/OSM speed limit × distance, with a flat rural/urban degradation factor) — explicitly no historical or live-traffic blending yet, since neither data source exists.
+1. [x] Stand up **Valhalla** — **done**, chosen over GraphHopper/OSRM (multiple profiles on one shared graph, no per-profile rebuild, plus built-in map matching). Full-country build took **under a minute** (67 tiles) — dramatically faster than Nominatim's import. See [routing/README.md](../routing/README.md) and `scripts/test_routing.sh`.
+2. [x] Configure car/walk/bike routing profiles — **done and verified** with real turn-by-turn output (actual street names: Lakeview Street, Ebony Street, Queen Street Roundabout) for all three profiles, plus a correct 111km cross-country route Belize City → San Ignacio via the real George Price Highway/AR1.
+3. [~] Validate turn restrictions/one-way tagging — 36 turn restrictions loaded successfully from the OSM relations (matches the count from [research/06-pilot-region-data-audit.md](../docs/research/06-pilot-region-data-audit.md)'s audit), but **not field-verified against real-world signage** — that needs local ground-truth, not something checkable remotely. Flagged as a known gap, not blocking.
+4. [x] Map matching — **done**, confirmed via `/trace_route`: a synthetic 3-point GPS trace correctly snapped to "Queen Street" with a coherent instruction. Zero custom development needed, exactly as [research/04-routing-traffic.md](../docs/research/04-routing-traffic.md) predicted.
+5. [x] Static, free-flow-speed ETAs — this is Valhalla's default behavior (no traffic data plugged in), and it's usefully accurate here specifically because `use_default_speeds_config` pulls per-surface-type speeds — which matters given most Belize roads are unpaved per the Phase 0 audit.
 
-**Output:** tap two points on the map, get a route + turn-by-turn instructions + a (static) ETA.
+**Bonus finding**: routing between the two pilot regions (Belize City ↔ Ambergris Caye/San Pedro, separated by open water) **works** — Valhalla found a real OSM-mapped ferry connection (`has_ferry: true`) rather than failing, confirming the actual water-taxi service tourists use is present in the graph. The route came back long/indirect (253km, ~6.6hrs) though, which suggests the ferry-route OSM data or its road-network connections could use cleanup — worth a closer look before this ships, but the core capability (ferry-aware routing) is real and didn't need special handling.
+
+**Output:** tap two points on the map, get a route + turn-by-turn instructions + a (static) ETA — the backend for this is fully working and tested. **Not yet done**: wiring this into the mobile app's UI (same pattern as Phase 2 — the service works, the client doesn't call it yet).
 
 ---
 
@@ -113,7 +115,7 @@ These require data that doesn't exist yet and shouldn't block earlier phases:
 | Satellite imagery | Sentinel-2/Copernicus (free, commercial-use-permitted) for pilot | Upgrade to Maxar/Airbus/Planet only once budget allows post-pilot |
 | Geocoding | **Nominatim** (chosen over Pelias — faster to a working demo, sufficient so far without libpostal) | Mature OSS reference implementation of the exact algorithm shape Kakao/Naver use |
 | POI search | **Typesense** (chosen over Meilisearch/Elasticsearch) | Lighter than Elasticsearch at Belize's POI volume, built-in typo tolerance verified working |
-| Routing | Valhalla or GraphHopper | Off-the-shelf CH/CCH-class performance is unnecessary at this scale; pick for profile flexibility + future live-traffic hooks |
+| Routing | **Valhalla** (chosen over GraphHopper/OSRM) | Multiple profiles on one shared graph, built-in map matching — both verified working, under a minute to build for all of Belize |
 | Dedup | PostgreSQL `pg_trgm` + manual review queue | Volume doesn't justify ML entity resolution yet |
 
 ---

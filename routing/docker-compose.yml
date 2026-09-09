@@ -1,0 +1,23 @@
+# Phase 4: Valhalla routing engine (car/walk/bike directions + built-in map
+# matching). Self-contained: builds its own routable graph from the OSM
+# extract, independent of the Phase 1 backend's Postgres.
+#
+# custom_files/ holds the OSM PBF + the built graph tiles/config — everything
+# Valhalla needs is dumped there by the container itself on first run.
+
+services:
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    container_name: belize-valhalla
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./custom_files:/custom_files
+    environment:
+      # Belize borders Mexico/Guatemala — worth having border-crossing-aware
+      # routing and correct driving-side detection from day one.
+      build_admins: "True"
+      build_time_zones: "True"
+      use_default_speeds_config: "True"
+      build_elevation: "False"

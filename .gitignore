@@ -35,6 +35,9 @@ data/tiles/
 *.osm.pbf
 *.mbtiles
 
+# Routing engine build output (Phase 4 — regenerable via `docker compose up`)
+routing/custom_files/
+
 # Env / secrets
 .env
 .env.*
