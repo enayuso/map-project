@@ -8,6 +8,12 @@ Tap **🧭 Directions**, then either tap two points on the map or use the search
 
 **Verified**: the client-side polyline decoding + Valhalla response parsing (`src/routing/api.ts`) was checked directly against a real `/route` response outside the UI — the first decoded coordinate matched the query's origin exactly, the last matched the destination, and all 65 points along the route fell inside Belize's bounding box. The UI wiring itself (button → map taps → route line + panel) renders without crashing, but — per issue 7 below — needs a manual tap-through in the real Simulator.app to fully confirm, the same way Phase 2's search box did.
 
+### Whole-country coverage, location, and compass (Phase 4.5)
+
+- **Coverage**: the app isn't actually limited to the two pilot areas — all backend services were built from the full Belize OSM extract, confirmed working for Belmopan, Corozal, and Punta Gorda too. See [docs/PLAN.md](../docs/PLAN.md) Phase 4.5.
+- **Current location**: tap 📍 (bottom-right) to center the map on the device's current position — uses MapLibre Native's built-in `useCurrentPosition`/`<NativeUserLocation>`, no extra geolocation package. Location tracking only starts on first tap, so the permission prompt doesn't fire before it's needed. On the Simulator, set a fake GPS location first: `xcrun simctl location <udid> set <lat>,<lon>` (the Simulator has no real GPS).
+- **Compass**: built into MapLibre Native (`compass`, `compassHiddenFacingNorth`, `compassPosition` props on `<Map>`) — appears only when the map is rotated, hides at north, and resets bearing on tap, all native behavior with zero custom code. Confirmed the hide-at-north behavior works (no compass visible at the default view).
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

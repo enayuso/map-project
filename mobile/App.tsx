@@ -3,6 +3,12 @@
  * MapLibre Native map pointed at our own PostGIS + Martin tile backend,
  * with a search box (Nominatim + Typesense, see src/search/) and turn-by-
  * turn directions (Valhalla, see src/routing/).
+ *
+ * Coverage: all four backend services (tiles, geocoding, POI search,
+ * routing) were built from the full-country OSM extract, not just the
+ * Belize City/Ambergris Caye pilot bboxes — confirmed working nationwide
+ * (Belmopan, Corozal, Punta Gorda) — so the whole of Belize is already
+ * usable, not just the two areas we happened to test most during Phases 1-4.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -13,6 +19,8 @@ import {
   Marker,
   GeoJSONSource,
   Layer,
+  NativeUserLocation,
+  useCurrentPosition,
   type CameraRef,
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
@@ -22,13 +30,36 @@ import type { SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type LatLon, type RouteResult } from './src/routing/api';
 import RoutePanel from './src/routing/RoutePanel';
 
-// Belize City — one of the two locked pilot areas (see docs/PLAN.md).
-// Ambergris Caye/San Pedro: [-87.9614, 17.9146]
+// Belize City — the app's initial view. The user can pan/search anywhere in
+// the country from here; see the coverage note above.
 const BELIZE_CITY: [number, number] = [-88.19, 17.4995];
 
 function App(): React.JSX.Element {
   const cameraRef = useRef<CameraRef>(null);
   const [pin, setPin] = useState<SearchResult | null>(null);
+
+  // --- Location state ---
+  // Deferred until the user actually taps "locate me", so we don't prompt
+  // for location permission before it's needed.
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  const currentPosition = useCurrentPosition({ enabled: locationEnabled });
+  const [flyToLocationPending, setFlyToLocationPending] = useState(false);
+
+  useEffect(() => {
+    if (flyToLocationPending && currentPosition) {
+      cameraRef.current?.flyTo({
+        center: [currentPosition.coords.longitude, currentPosition.coords.latitude],
+        zoom: 15,
+        duration: 1000,
+      });
+      setFlyToLocationPending(false);
+    }
+  }, [flyToLocationPending, currentPosition]);
+
+  const handleLocateMe = () => {
+    if (!locationEnabled) setLocationEnabled(true);
+    setFlyToLocationPending(true);
+  };
 
   // --- Routing state ---
   const [routingActive, setRoutingActive] = useState(false);
@@ -106,8 +137,22 @@ function App(): React.JSX.Element {
 
   return (
     <View style={styles.container}>
-      <Map style={styles.map} mapStyle={basicStyle as any} onPress={handleMapPress}>
+      <Map
+        style={styles.map}
+        mapStyle={basicStyle as any}
+        onPress={handleMapPress}
+        // Native compass control: appears when the map is rotated away from
+        // north, hides itself when facing north again, and resets bearing
+        // to north when tapped — all built into MapLibre Native, no custom
+        // touch handling needed (and none of the RN-overlay-vs-native-map
+        // touch issues from src/search/SearchBox.tsx apply, since this is a
+        // native map ornament, not an RN sibling view).
+        compass
+        compassHiddenFacingNorth
+        compassPosition={{ top: 60, right: 12 }}>
         <Camera ref={cameraRef} initialViewState={{ center: BELIZE_CITY, zoom: 13 }} />
+
+        {locationEnabled && <NativeUserLocation mode="heading" />}
 
         {pin && !routingActive && (
           <Marker lngLat={[pin.lon, pin.lat]}>
@@ -153,6 +198,10 @@ function App(): React.JSX.Element {
           <Text style={styles.hint}>Now tap the map or search for your destination</Text>
         )}
       </View>
+
+      <Pressable style={styles.locateButton} onPress={handleLocateMe}>
+        <Text style={styles.locateButtonText}>📍</Text>
+      </Pressable>
 
       <RoutePanel
         visible={showPanel}
@@ -216,6 +265,25 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
     alignSelf: 'flex-start',
+  },
+  locateButton: {
+    position: 'absolute',
+    bottom: 32,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  locateButtonText: {
+    fontSize: 22,
   },
 });
 

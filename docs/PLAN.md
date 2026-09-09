@@ -92,6 +92,18 @@ Also surfaced a real dev-environment constraint worth carrying forward: this mac
 
 ---
 
+## Phase 4.5 — UX Polish Toward Kakao/Naver Parity
+
+Not one of the original five phases — this is the first round of "make it behave like Kakao/Naver Map" polish, requested directly once Phases 1/2/4 were working end-to-end. Expect more items to land here over time.
+
+1. [x] **Whole-country coverage** — turned out to already be done: all four backend services (Martin tiles, Nominatim, Typesense, Valhalla) were built from the *full* Belize OSM extract back in Phases 1/2/4, not just the two pilot bboxes used for testing focus. Confirmed with real queries against towns neither pilot area covers — Belmopan (the capital) geocodes correctly, Punta Gorda (south) and Corozal (north) both geocode correctly, a Belize City → Corozal route computes correctly (138km), and tiles render correctly near Belmopan. The "pilot region" framing in this doc was always a *testing* scope, never an actual data restriction — updated `mobile/App.tsx`'s comments to reflect that the whole country is live today.
+2. [x] **Current-location detection** — added via MapLibre Native's built-in `useCurrentPosition` hook + `<NativeUserLocation mode="heading">` (no extra geolocation package needed). Deferred starting location tracking until the user taps the new 📍 button (bottom-right), so the OS permission prompt doesn't fire before it's actually needed. Filled in the previously-empty `NSLocationWhenInUseUsageDescription` in `Info.plist` (required a rebuild, not just a Metro refresh, since Info.plist is baked in at build time).
+3. [x] **Compass / reset-bearing control** — turned out to be a **built-in native ornament**, not custom work: `<Map compass compassHiddenFacingNorth compassPosition={{top: 60, right: 12}}>`. Appears only when the map is rotated away from north, hides itself when facing north (confirmed working — no compass visible at the default north-up view), and tapping it resets bearing to north natively. Being a native map ornament rather than an RN sibling view, it's also immune to the touch-passthrough bug documented in `mobile/README.md` issue 6.
+
+**Verification note**: as with Phases 2/4, on-device tap interaction (the 📍 button, map rotation) should get the same manual real-Simulator.app spot-check rather than trusting automated tap injection — see `mobile/README.md` issues 6-8 for why.
+
+---
+
 ## Phase 5 — Deferred / Future Layers
 
 These require data that doesn't exist yet and shouldn't block earlier phases:
@@ -122,7 +134,7 @@ These require data that doesn't exist yet and shouldn't block earlier phases:
 
 ## Locked decisions (2026-09-09)
 
-1. **Geographic scope for v1: pilot region.** Working definition: **Belize City + a tourist corridor (Ambergris Caye/San Pedro)**. This is adjustable once Phase 0's data audit shows where OSM coverage is actually strongest — the audit may suggest widening/narrowing the exact boundary, but "one city + one tourist corridor" is the target size.
+1. **Geographic scope for v1: pilot region for testing focus, whole country for actual data.** Working definition was **Belize City + a tourist corridor (Ambergris Caye/San Pedro)** — but every backend service was built from the full-country OSM extract from the start, and Phase 4.5 confirmed the whole country already works end-to-end (Belmopan, Corozal, Punta Gorda all resolve correctly). The pilot bboxes were always a *QA/testing* scope, not a data limitation.
 2. **Platform priority: mobile first (iOS + Android).** This changes Phase 1's client target from "MapLibre GL JS in a browser" to **MapLibre Native**. For a solo/small-team build targeting both platforms from one codebase, we went with **React Native** + `@maplibre/maplibre-react-native` — **now locked, not just a recommendation**: it's built and running (see Phase 1 below, [mobile/](../mobile/)).
 3. **Budget: hobby/self-funded now, may scale up if the pilot succeeds.** This means every Phase 0–4 choice should default to **free-tier and self-hosted options that remain valid if the project later needs to scale commercially** — i.e., avoid anything free-for-non-commercial-use-only that would need ripping out later. Concretely: **Sentinel-2/Copernicus imagery** (free, ~10m resolution, license explicitly permits commercial use) instead of a commercial provider for the pilot's satellite layer, self-hosted OSS (PostGIS, Martin, Nominatim/Pelias, Typesense/Meilisearch, Valhalla/GraphHopper) on modest/free-tier cloud infra rather than paid SaaS equivalents. Revisit Maxar/Airbus/Planet imagery licensing only once the pilot has traction and a real budget.
 4. **Project nature: commercial venture.** This has two direct licensing consequences to respect from day one: (a) **OpenStreetMap's ODbL license permits commercial use** but requires attribution and share-alike *of the database itself* if it's redistributed/published — fine for "using OSM data to power an app," just needs a visible attribution in the app; (b) every tool in the recommended stack (MapLibre, Valhalla/GraphHopper, Typesense/Meilisearch, libpostal, Pelias) is chosen specifically because its license (BSD/MIT/Apache-2.0) permits commercial use with no fee — this was already true of the Phase-0-recommended stack, and is now a hard constraint rather than just a preference, since we're no longer picking tools "for a hobby project."
