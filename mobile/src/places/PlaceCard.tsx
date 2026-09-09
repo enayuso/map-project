@@ -11,11 +11,20 @@ export type TravelPreview =
 type Props = {
   place: SearchResult | null;
   travelPreview: TravelPreview;
+  isFavorite: boolean;
   onClose: () => void;
   onDirections: () => void;
+  onToggleFavorite: () => void;
 };
 
-export default function PlaceCard({ place, travelPreview, onClose, onDirections }: Props) {
+export default function PlaceCard({
+  place,
+  travelPreview,
+  isFavorite,
+  onClose,
+  onDirections,
+  onToggleFavorite,
+}: Props) {
   return (
     <Modal transparent visible={!!place} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
@@ -29,6 +38,11 @@ export default function PlaceCard({ place, travelPreview, onClose, onDirections 
                   {place.subtitle}
                 </Text>
               </View>
+              <Pressable style={styles.favoriteButton} onPress={onToggleFavorite}>
+                <Text style={[styles.favoriteLabel, isFavorite && styles.favoriteLabelActive]}>
+                  {isFavorite ? '★' : '☆'}
+                </Text>
+              </Pressable>
               <Pressable style={styles.closeButton} onPress={onClose}>
                 <Text style={styles.closeLabel}>✕</Text>
               </Pressable>
@@ -89,6 +103,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#8a8578',
     marginTop: 4,
+  },
+  favoriteButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#f0ede4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  favoriteLabel: {
+    fontSize: 17,
+    color: '#8a8578',
+  },
+  favoriteLabelActive: {
+    color: '#d9a441',
   },
   closeButton: {
     width: 30,

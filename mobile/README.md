@@ -44,6 +44,14 @@ Zooming all the way out used to look broken, for two separate reasons — fixed 
 
 **Verified**: style JSON confirmed valid and loading with zero `mbgl`/style-parse errors in the device log (checked directly). TypeScript/ESLint clean. Bold city labels and the new layers confirmed rendering via simulator screenshot. `minZoom`/`maxZoom`/`maxBounds` are native `<Camera>` props (confirmed against the library's real types), not custom logic — but the actual zoomed-out *feel* still needs your manual check in the real Simulator.app; this session's automated tap injection couldn't reliably drive repeated zoom-out taps to verify it live.
 
+### Favorites + recent searches (Phase 4.5)
+
+A ★ button on `PlaceCard` saves/unsaves the current place. `SearchBox`, when focused with an empty query, shows "⭐ Saved places" and "🕐 Recent" sections instead of an empty dropdown — the same pre-typing shortcut Kakao/Naver show. Persisted locally via `@react-native-async-storage/async-storage` (`src/places/favorites.ts`) — the **first new native dependency since MapLibre itself**, so this one needed a real rebuild (`pod install` + `xcodebuild`), not just a Metro reload. `App.tsx` owns the `favorites`/`recentSearches` state (loaded once on mount from storage) so `SearchBox` and `PlaceCard` can't disagree about it. Any place selection — typed search, a category-chip result, or a direct map-POI tap — records a "recent," matching how Kakao/Naver's own recents track anything you've looked at, not just typed queries.
+
+Also fixed one existing behavior that would have undercut this: `SearchBox` used to leave the selected place's name sitting in its own text field after a selection, so the box was rarely genuinely empty again — meaning the new shortcut list would rarely get a chance to show. It now clears back to empty on selection instead (the place shows on the map/its card, not duplicated in the search bar).
+
+**Verified**: TypeScript/ESLint clean. The native module's own storage directory (`RCTAsyncLocalStorage_V1`) shows up in the device log after the rebuild with zero errors — direct evidence it's actually initializing and persisting, not just failing silently. App relaunches and renders correctly post-rebuild. The save/tap-through itself still needs a manual real-Simulator.app check, per issue 7 below.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

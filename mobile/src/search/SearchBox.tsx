@@ -16,19 +16,26 @@ const DEBOUNCE_MS = 300;
 
 type Props = {
   onSelect: (result: SearchResult) => void;
+  recentSearches: SearchResult[];
+  favorites: SearchResult[];
 };
 
-export default function SearchBox({ onSelect }: Props) {
+export default function SearchBox({ onSelect, recentSearches, favorites }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const trimmed = query.trim();
+  // Below 2 characters there's nothing to search yet — this is also exactly
+  // when Kakao/Naver show a "recent searches" / saved-places shortcut list
+  // instead of leaving the dropdown empty, so we do the same here.
+  const showShortcuts = trimmed.length < 2 && (favorites.length > 0 || recentSearches.length > 0);
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    const trimmed = query.trim();
     if (trimmed.length < 2) {
       setResults([]);
       setLoading(false);
@@ -46,12 +53,16 @@ export default function SearchBox({ onSelect }: Props) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [trimmed]);
 
   const handleSelect = (result: SearchResult) => {
     Keyboard.dismiss();
     setShowResults(false);
-    setQuery(result.name);
+    // Clear back to empty rather than filling in the selected name — the
+    // place itself now shows on the map/its card, and leaving the box
+    // empty means focusing it again immediately offers recents/favorites
+    // instead of just re-running the same search.
+    setQuery('');
     onSelect(result);
   };
 
@@ -90,7 +101,7 @@ export default function SearchBox({ onSelect }: Props) {
        */}
       <Modal
         transparent
-        visible={showResults && results.length > 0}
+        visible={showResults && (results.length > 0 || showShortcuts)}
         animationType="none"
         onRequestClose={dismiss}>
         <Pressable style={styles.backdrop} onPress={dismiss}>
@@ -98,17 +109,54 @@ export default function SearchBox({ onSelect }: Props) {
             <ScrollView
               style={styles.resultsBox}
               keyboardShouldPersistTaps="handled">
-              {results.map(item => (
-                <Pressable
-                  key={item.id}
-                  style={styles.resultRow}
-                  onPress={() => handleSelect(item)}>
-                  <Text style={styles.resultName}>{item.name}</Text>
-                  <Text style={styles.resultSubtitle} numberOfLines={1}>
-                    {item.subtitle}
-                  </Text>
-                </Pressable>
-              ))}
+              {showShortcuts ? (
+                <>
+                  {favorites.length > 0 && (
+                    <>
+                      <Text style={styles.sectionHeader}>⭐ Saved places</Text>
+                      {favorites.map(item => (
+                        <Pressable
+                          key={item.id}
+                          style={styles.resultRow}
+                          onPress={() => handleSelect(item)}>
+                          <Text style={styles.resultName}>{item.name}</Text>
+                          <Text style={styles.resultSubtitle} numberOfLines={1}>
+                            {item.subtitle}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </>
+                  )}
+                  {recentSearches.length > 0 && (
+                    <>
+                      <Text style={styles.sectionHeader}>🕐 Recent</Text>
+                      {recentSearches.map(item => (
+                        <Pressable
+                          key={item.id}
+                          style={styles.resultRow}
+                          onPress={() => handleSelect(item)}>
+                          <Text style={styles.resultName}>{item.name}</Text>
+                          <Text style={styles.resultSubtitle} numberOfLines={1}>
+                            {item.subtitle}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </>
+                  )}
+                </>
+              ) : (
+                results.map(item => (
+                  <Pressable
+                    key={item.id}
+                    style={styles.resultRow}
+                    onPress={() => handleSelect(item)}>
+                    <Text style={styles.resultName}>{item.name}</Text>
+                    <Text style={styles.resultSubtitle} numberOfLines={1}>
+                      {item.subtitle}
+                    </Text>
+                  </Pressable>
+                ))
+              )}
             </ScrollView>
           </View>
         </Pressable>
@@ -162,6 +210,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
     overflow: 'hidden',
+  },
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8a8578',
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 4,
   },
   resultRow: {
     paddingVertical: 10,

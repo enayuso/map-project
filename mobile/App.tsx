@@ -36,6 +36,13 @@ import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 import CategoryBar from './src/categories/CategoryBar';
 import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
 import { categoryLabel, haversineKm, type NearbyResult } from './src/categories/categories';
+import {
+  addFavorite,
+  addRecentSearch,
+  getFavorites,
+  getRecentSearches,
+  removeFavorite,
+} from './src/places/favorites';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -93,6 +100,34 @@ function App(): React.JSX.Element {
   const cameraRef = useRef<CameraRef>(null);
   const mapRef = useRef<MapRef>(null);
   const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
+
+  // --- Favorites + recent searches ---
+  // Persisted locally (see src/places/favorites.ts) — loaded once on mount,
+  // then kept in sync here so SearchBox's shortcut list and PlaceCard's ★
+  // button always reflect the same state without each reading storage
+  // independently.
+  const [favorites, setFavorites] = useState<SearchResult[]>([]);
+  const [recentSearches, setRecentSearches] = useState<SearchResult[]>([]);
+
+  useEffect(() => {
+    getFavorites().then(setFavorites);
+    getRecentSearches().then(setRecentSearches);
+  }, []);
+
+  const recordRecentSearch = (place: SearchResult) => {
+    addRecentSearch(place).then(setRecentSearches);
+  };
+
+  const isSelectedPlaceFavorite = !!selectedPlace && favorites.some(f => f.id === selectedPlace.id);
+
+  const handleToggleFavorite = () => {
+    if (!selectedPlace) return;
+    if (isSelectedPlaceFavorite) {
+      removeFavorite(selectedPlace.id).then(setFavorites);
+    } else {
+      addFavorite(selectedPlace).then(setFavorites);
+    }
+  };
 
   // --- Zoom control ---
   // Tracks the live zoom level (kept in sync via onRegionDidChange below, so
@@ -215,6 +250,7 @@ function App(): React.JSX.Element {
 
   const handleSelectCategoryResult = (result: NearbyResult) => {
     setSelectedPlace(result);
+    recordRecentSearch(result);
     cameraRef.current?.flyTo({ center: [result.lon, result.lat], zoom: 17, duration: 800 });
   };
 
@@ -234,6 +270,7 @@ function App(): React.JSX.Element {
       return;
     }
     setSelectedPlace(result);
+    recordRecentSearch(result);
     cameraRef.current?.flyTo({ center: [result.lon, result.lat], zoom: 16, duration: 1200 });
   };
 
@@ -261,6 +298,7 @@ function App(): React.JSX.Element {
     });
     const place = features && features.length > 0 ? placeFromFeature(features[0]) : null;
     setSelectedPlace(place);
+    if (place) recordRecentSearch(place);
   };
 
   const startDirectionsTo = (place: SearchResult) => {
@@ -358,7 +396,7 @@ function App(): React.JSX.Element {
         )}
       </Map>
 
-      <SearchBox onSelect={handleSelect} />
+      <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
 
       {!routingActive && (
         <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
@@ -408,8 +446,10 @@ function App(): React.JSX.Element {
       <PlaceCard
         place={routingActive ? null : selectedPlace}
         travelPreview={travelPreview}
+        isFavorite={isSelectedPlaceFavorite}
         onClose={() => setSelectedPlace(null)}
         onDirections={() => selectedPlace && startDirectionsTo(selectedPlace)}
+        onToggleFavorite={handleToggleFavorite}
       />
 
       <CategoryResultsSheet
