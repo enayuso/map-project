@@ -24,6 +24,7 @@ type Props = {
   costing: Costing;
   onChangeCosting: (c: Costing) => void;
   onClear: () => void;
+  onStartNavigation: () => void;
 };
 
 export default function RoutePanel({
@@ -34,6 +35,7 @@ export default function RoutePanel({
   costing,
   onChangeCosting,
   onClear,
+  onStartNavigation,
 }: Props) {
   return (
     // Rendered in a Modal, not a plain overlay View — a native MapView
@@ -82,6 +84,9 @@ export default function RoutePanel({
                   <Text style={styles.ferryBadge}>⛴ includes ferry</Text>
                 )}
               </View>
+              <Pressable style={styles.startButton} onPress={onStartNavigation}>
+                <Text style={styles.startLabel}>▶ Start</Text>
+              </Pressable>
               <ScrollView style={styles.maneuverList}>
                 {route.maneuvers.map((m, i) => (
                   <View key={i} style={styles.maneuverRow}>
@@ -179,6 +184,18 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     fontSize: 12,
     color: '#2b6cb0',
+  },
+  startButton: {
+    backgroundColor: '#2f9e44',
+    borderRadius: 20,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  startLabel: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
   },
   maneuverList: {
     maxHeight: 220,

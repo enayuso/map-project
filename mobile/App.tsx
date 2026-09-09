@@ -33,6 +33,8 @@ import SearchBox from './src/search/SearchBox';
 import { searchNearby, type SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type LatLon, type RouteResult } from './src/routing/api';
 import RoutePanel from './src/routing/RoutePanel';
+import NavigationBar from './src/routing/NavigationBar';
+import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 import CategoryBar from './src/categories/CategoryBar';
 import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
@@ -196,6 +198,41 @@ function App(): React.JSX.Element {
       .finally(() => setRouteLoading(false));
   }, [origin, destination, costing]);
 
+  // --- Live turn-by-turn navigation ---
+  // No map-matching — distance-to-next-turn is straight-line from the live
+  // GPS fix to the upcoming maneuver's coordinate (see src/routing/
+  // navigation.ts for why, and what that trades away: real off-route
+  // detection would need actual path-projection, which this doesn't do).
+  const [navigationActive, setNavigationActive] = useState(false);
+  const [currentManeuverIndex, setCurrentManeuverIndex] = useState(0);
+
+  const upcomingManeuver =
+    navigationActive && route && currentPosition
+      ? getUpcomingManeuver(route, currentManeuverIndex, {
+          lat: currentPosition.coords.latitude,
+          lon: currentPosition.coords.longitude,
+        })
+      : null;
+  const navigationArrived = navigationActive && !upcomingManeuver;
+
+  useEffect(() => {
+    if (!upcomingManeuver) return;
+    if (upcomingManeuver.distanceToManeuverKm <= MANEUVER_ARRIVAL_THRESHOLD_KM) {
+      setCurrentManeuverIndex(upcomingManeuver.index);
+    }
+  }, [upcomingManeuver]);
+
+  const handleStartNavigation = () => {
+    if (!locationEnabled) setLocationEnabled(true);
+    setCurrentManeuverIndex(0);
+    setNavigationActive(true);
+    cameraRef.current?.zoomTo(17, { duration: 500 });
+  };
+
+  const handleEndNavigation = () => {
+    setNavigationActive(false);
+  };
+
   // --- Place card travel-time preview ---
   // Kakao/Naver show "X min away" the moment you open a place card. We can
   // only do that once the user has enabled location at least once — no
@@ -338,9 +375,11 @@ function App(): React.JSX.Element {
     setDestination(null);
     setRoute(null);
     setRouteError(null);
+    setNavigationActive(false);
   };
 
-  const showRoutePanel = routingActive && (routeLoading || !!route || !!routeError);
+  const showRoutePanel = routingActive && !navigationActive && (routeLoading || !!route || !!routeError);
+  const remainingTrip = route ? getRemainingTrip(route, currentManeuverIndex) : null;
 
   return (
     <View style={styles.container}>
@@ -365,9 +404,15 @@ function App(): React.JSX.Element {
           minZoom={MIN_ZOOM}
           maxZoom={MAX_ZOOM}
           maxBounds={MAX_BOUNDS}
+          // During navigation, MapLibre Native's own follow-camera takes
+          // over centering + bearing (using GPS course — direction of
+          // travel — rather than the compass, which is noisier in a moving
+          // vehicle). Undefined the rest of the time, leaving the camera
+          // fully manual as usual.
+          trackUserLocation={navigationActive ? 'course' : undefined}
         />
 
-        {locationEnabled && <NativeUserLocation mode="heading" />}
+        {locationEnabled && <NativeUserLocation mode={navigationActive ? 'course' : 'heading'} />}
 
         {selectedPlace && !routingActive && (
           <Marker lngLat={[selectedPlace.lon, selectedPlace.lat]}>
@@ -404,25 +449,40 @@ function App(): React.JSX.Element {
         )}
       </Map>
 
-      <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
+      {!navigationActive && (
+        <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
+      )}
 
-      {!routingActive && (
+      {!routingActive && !navigationActive && (
         <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
       )}
 
-      <View style={styles.directionsButtonWrap}>
-        <Pressable style={styles.directionsButton} onPress={toggleRouting}>
-          <Text style={styles.directionsButtonText}>
-            {routingActive ? '✕ Cancel directions' : '🧭 Directions'}
-          </Text>
-        </Pressable>
-        {routingActive && !origin && (
-          <Text style={styles.hint}>Tap the map or search to set your start point</Text>
-        )}
-        {routingActive && origin && !destination && (
-          <Text style={styles.hint}>Now tap the map or search for your destination</Text>
-        )}
-      </View>
+      {!navigationActive && (
+        <View style={styles.directionsButtonWrap}>
+          <Pressable style={styles.directionsButton} onPress={toggleRouting}>
+            <Text style={styles.directionsButtonText}>
+              {routingActive ? '✕ Cancel directions' : '🧭 Directions'}
+            </Text>
+          </Pressable>
+          {routingActive && !origin && (
+            <Text style={styles.hint}>Tap the map or search to set your start point</Text>
+          )}
+          {routingActive && origin && !destination && (
+            <Text style={styles.hint}>Now tap the map or search for your destination</Text>
+          )}
+        </View>
+      )}
+
+      <NavigationBar
+        visible={navigationActive}
+        arrived={navigationArrived}
+        icon={upcomingManeuver?.maneuver.type ?? 0}
+        instruction={upcomingManeuver?.maneuver.instruction ?? ''}
+        distanceToManeuverKm={upcomingManeuver?.distanceToManeuverKm ?? 0}
+        remainingDistanceKm={remainingTrip?.distanceKm ?? 0}
+        remainingDurationMin={remainingTrip?.durationMin ?? 0}
+        onEnd={handleEndNavigation}
+      />
 
       {/*
        * Zoom control: a stacked +/- pill on the right edge, same shape as
@@ -492,6 +552,7 @@ function App(): React.JSX.Element {
           clearRoute();
           setRoutingActive(false);
         }}
+        onStartNavigation={handleStartNavigation}
       />
     </View>
   );

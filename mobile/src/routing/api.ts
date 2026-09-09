@@ -15,6 +15,15 @@ export type LatLon = { lat: number; lon: number };
 export type RouteManeuver = {
   instruction: string;
   distanceKm: number;
+  durationSec: number;
+  /** Valhalla's maneuver type code (turn direction/depart/arrive/roundabout/
+   * etc.) — see src/routing/navigation.ts's MANEUVER_ICONS for the mapping. */
+  type: number;
+  /** Index into RouteResult.geometry.coordinates where this maneuver's
+   * instruction applies — e.g. "distance to this coordinate" is exactly
+   * "distance to the next turn" for live navigation (src/routing/
+   * navigation.ts). */
+  beginShapeIndex: number;
 };
 
 export type RouteResult = {
@@ -92,6 +101,9 @@ export async function fetchRoute(
   const maneuvers: RouteManeuver[] = leg.maneuvers.map((m: any) => ({
     instruction: m.instruction as string,
     distanceKm: m.length as number,
+    durationSec: m.time as number,
+    type: m.type as number,
+    beginShapeIndex: m.begin_shape_index as number,
   }));
 
   return {
