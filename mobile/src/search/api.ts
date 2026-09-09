@@ -92,3 +92,36 @@ export async function searchAll(query: string): Promise<SearchResult[]> {
   // more useful than a broad place match for the same query.
   return results.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'poi' ? -1 : 1));
 }
+
+/**
+ * Category-filtered nearby search — powers the category quick-filter bar
+ * (see src/categories/). `category` is one of the taxonomy keys from
+ * scripts/build_poi_index.py (e.g. "restaurant", "cafe"). Typesense's
+ * geopoint filter/sort syntax: `location:(lat, lon, radius km)` and
+ * `location(lat,lon):asc` — see search/README.md's geo-radius example,
+ * confirmed working there (489 results within 3km of Belize City).
+ */
+export async function searchNearby(
+  category: string,
+  center: { lat: number; lon: number },
+  radiusKm = 8,
+): Promise<SearchResult[]> {
+  const filterBy = `category:=${category} && location:(${center.lat}, ${center.lon}, ${radiusKm} km)`;
+  const sortBy = `location(${center.lat},${center.lon}):asc`;
+  const url =
+    `${TYPESENSE_URL}/collections/pois/documents/search?q=*&query_by=name` +
+    `&filter_by=${encodeURIComponent(filterBy)}&sort_by=${encodeURIComponent(sortBy)}&per_page=50`;
+  const res = await fetch(url, {
+    headers: { 'X-TYPESENSE-API-KEY': TYPESENSE_API_KEY },
+  });
+  if (!res.ok) throw new Error(`Typesense ${res.status}`);
+  const body: { hits: TypesenseHit[] } = await res.json();
+  return body.hits.map(h => ({
+    id: `poi-${h.document.id}`,
+    name: h.document.name,
+    subtitle: h.document.category.replace('_', ' '),
+    lat: h.document.location[0],
+    lon: h.document.location[1],
+    kind: 'poi' as const,
+  }));
+}

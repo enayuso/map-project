@@ -29,10 +29,13 @@ import {
 } from '@maplibre/maplibre-react-native';
 import basicStyle from './src/styles/basic.json';
 import SearchBox from './src/search/SearchBox';
-import type { SearchResult } from './src/search/api';
+import { searchNearby, type SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type LatLon, type RouteResult } from './src/routing/api';
 import RoutePanel from './src/routing/RoutePanel';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
+import CategoryBar from './src/categories/CategoryBar';
+import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
+import { categoryLabel, haversineKm, type NearbyResult } from './src/categories/categories';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -129,6 +132,54 @@ function App(): React.JSX.Element {
       .catch(() => setTravelPreview({ status: 'error' }));
   }, [selectedPlace, currentPosition]);
 
+  // --- Category browsing (Kakao/Naver-style quick-filter chips) ---
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [categoryResults, setCategoryResults] = useState<NearbyResult[]>([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+
+  const handleSelectCategory = async (key: string) => {
+    if (activeCategory === key) {
+      // Tapping the already-active chip again turns category browsing off.
+      setActiveCategory(null);
+      setCategoryResults([]);
+      setCategoryError(null);
+      return;
+    }
+    setActiveCategory(key);
+    setSelectedPlace(null); // don't show a stale card over the new results
+    setCategoryLoading(true);
+    setCategoryError(null);
+    try {
+      // Search around what the user is currently looking at, not their GPS
+      // position — the same "search this area" behavior Kakao/Naver use,
+      // since you're often browsing somewhere other than where you are.
+      const center = await mapRef.current?.getCenter();
+      if (!center) throw new Error('no map center');
+      const [lon, lat] = center;
+      const nearby = await searchNearby(key, { lat, lon });
+      setCategoryResults(
+        nearby.map(r => ({ ...r, distanceKm: haversineKm({ lat, lon }, { lat: r.lat, lon: r.lon }) })),
+      );
+    } catch {
+      setCategoryResults([]);
+      setCategoryError('Could not load nearby places.');
+    } finally {
+      setCategoryLoading(false);
+    }
+  };
+
+  const handleSelectCategoryResult = (result: NearbyResult) => {
+    setSelectedPlace(result);
+    cameraRef.current?.flyTo({ center: [result.lon, result.lat], zoom: 17, duration: 800 });
+  };
+
+  const closeCategoryBrowsing = () => {
+    setActiveCategory(null);
+    setCategoryResults([]);
+    setCategoryError(null);
+  };
+
   const handleSelect = (result: SearchResult) => {
     if (routingActive) {
       if (!origin) {
@@ -181,6 +232,7 @@ function App(): React.JSX.Element {
       clearRoute();
     } else {
       setRoutingActive(true);
+      closeCategoryBrowsing(); // category chips don't mean anything mid-directions
       // If a place is already selected (from search or a map tap), use it
       // as the destination right away — the common "look at a place, then
       // get directions to it" flow.
@@ -226,6 +278,12 @@ function App(): React.JSX.Element {
           </Marker>
         )}
 
+        {activeCategory && !routingActive && categoryResults.map(r => (
+          <Marker key={r.id} lngLat={[r.lon, r.lat]} onPress={() => handleSelectCategoryResult(r)}>
+            <View style={styles.categoryDot} />
+          </Marker>
+        ))}
+
         {origin && (
           <Marker lngLat={[origin.lon, origin.lat]}>
             <View style={[styles.pin, styles.originPin]} />
@@ -251,6 +309,10 @@ function App(): React.JSX.Element {
 
       <SearchBox onSelect={handleSelect} />
 
+      {!routingActive && (
+        <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
+      )}
+
       <View style={styles.directionsButtonWrap}>
         <Pressable style={styles.directionsButton} onPress={toggleRouting}>
           <Text style={styles.directionsButtonText}>
@@ -274,6 +336,16 @@ function App(): React.JSX.Element {
         travelPreview={travelPreview}
         onClose={() => setSelectedPlace(null)}
         onDirections={() => selectedPlace && startDirectionsTo(selectedPlace)}
+      />
+
+      <CategoryResultsSheet
+        visible={!!activeCategory && !routingActive && !selectedPlace}
+        loading={categoryLoading}
+        error={categoryError}
+        categoryLabel={activeCategory ? categoryLabel(activeCategory) : ''}
+        results={categoryResults}
+        onSelect={handleSelectCategoryResult}
+        onClose={closeCategoryBrowsing}
       />
 
       <RoutePanel
@@ -306,11 +378,19 @@ const styles = StyleSheet.create({
   originPin: {
     backgroundColor: '#2f9e44',
   },
+  categoryDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#2f7d6c',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
   directionsButtonWrap: {
     position: 'absolute',
-    top: 116,
+    top: 164,
     left: 12,
-    zIndex: 9,
+    zIndex: 8,
   },
   directionsButton: {
     backgroundColor: '#3a3226',

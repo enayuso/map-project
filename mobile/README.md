@@ -20,6 +20,14 @@ Tap any place — a search result, or a POI dot rendered directly on the map —
 
 **Verified**: TypeScript compiles clean against the real `@maplibre/maplibre-react-native` type definitions (checked `MapRef.queryRenderedFeatures` and `PressEvent.point` directly in the library's `.d.ts` rather than assuming the shape). App relaunches and renders without crashing — pure JS + style-JSON change, no native rebuild needed. Interactive tap-through still needs a manual pass in the real Simulator.app, per issue 7 below — this session's own attempt at automated verification hit issue 7 again (see there).
 
+### Category quick-filter browsing (Phase 4.5)
+
+A horizontal chip bar (`src/categories/CategoryBar.tsx`) sits under the search box — 🍽 Food, ☕ Cafes, 🛒 Grocery, ⛽ Gas, 🏧 Bank/ATM, 💊 Pharmacy, 🏨 Hotels, 🎡 Attractions, 🍺 Bars, 🏥 Health (scroll for more). Tapping one calls `searchNearby()` (`src/search/api.ts`) against Typesense with a geo-radius filter centered on wherever the map is currently showing (not the device's GPS position — deliberately, since you're often browsing an area you aren't standing in, matching Kakao/Naver's own "search this area" behavior), sorted nearest-first. Results render two ways at once: as `<Marker onPress>` pins directly on the map (a native annotation, so — unlike an RN overlay — it isn't subject to issue 6's touch-swallowing bug at all) and as a distance-labeled list in `src/categories/CategoryResultsSheet.tsx` (Modal-based, same reasoning as `SearchBox`'s dropdown, since this list mounts/unmounts with state). Tapping either a pin or a list row opens the same `PlaceCard` used everywhere else.
+
+The chip bar itself (`CategoryBar.tsx`) is a plain absolutely-positioned overlay, *not* wrapped in a Modal — it's a static, always-mounted set of `Pressable`s, the same shape as the already-confirmed-working "🧭 Directions" button, not a dynamically-appearing list like the thing issue 6 actually affected.
+
+**Verified**: the exact Typesense query (`filter_by=category:=X && location:(lat,lon,8 km)`, `sort_by=location(lat,lon):asc`) was run directly against the live backend outside the app and confirmed correct — 53 restaurants within 8km of Belize City, correctly sorted by `geo_distance_meters`. TypeScript and ESLint both clean. App relaunches without crashing and the chip bar renders correctly. Automated tap-through on an actual chip did not register at all this attempt (confirmed via Typesense's own request logs showing nothing arrived) — a milder version of issue 7's unreliability rather than a code defect, since the query itself is independently verified working. Needs the same manual real-Simulator.app pass as everything else in this list.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))
