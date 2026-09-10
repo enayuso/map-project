@@ -24,6 +24,7 @@ import {
   NativeUserLocation,
   useCurrentPosition,
   type CameraRef,
+  type LngLatBounds,
   type MapRef,
   type PressEvent,
   type ViewStateChangeEvent,
@@ -84,6 +85,35 @@ const MAX_ZOOM = 19;
 // country's northern/southern extremes — needs to stay reachable.
 // [west, south, east, north].
 const MAX_BOUNDS: [number, number, number, number] = [-89.35, 15.75, -86.75, 18.6];
+
+// Screen-space padding for the auto-fit-route camera move below — keeps the
+// route clear of the UI actually covering the map at that moment: generous
+// on top (DirectionsSearchPanel's card) and especially on the bottom (the
+// route/turn-list bottom sheet, which can run up to 55% of screen height —
+// see src/routing/RoutePanel.tsx — though its real content is usually much
+// shorter than that cap). Fixed pixels, not a fraction of screen height,
+// matching how every other camera/UI position constant in this file works.
+const ROUTE_FIT_PADDING = { top: 110, right: 50, bottom: 280, left: 50 };
+
+/** [west, south, east, north] enclosing every coordinate along the route's
+ * actual road geometry — not just origin/destination, since a real route
+ * regularly bows out well past a straight line between the two (a detour
+ * around a river, a highway that isn't direct) and a bounds fit from just
+ * the two endpoints would clip it. Used to auto-fit the camera once a
+ * route comes back, so the whole thing is visible without a manual pan. */
+function boundsFromRouteCoordinates(coordinates: GeoJSON.Position[]): LngLatBounds {
+  let west = coordinates[0][0];
+  let east = coordinates[0][0];
+  let south = coordinates[0][1];
+  let north = coordinates[0][1];
+  for (const [lon, lat] of coordinates) {
+    if (lon < west) west = lon;
+    if (lon > east) east = lon;
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+  }
+  return [west, south, east, north];
+}
 
 /** Turns a tapped "poi-circles" vector-tile feature into a SearchResult-
  * shaped place, so it can flow through the same PlaceCard/Directions path
@@ -264,7 +294,18 @@ function App(): React.JSX.Element {
     setRouteLoading(true);
     setRouteError(null);
     fetchRoute(origin, destination, costing)
-      .then(setRoute)
+      .then(result => {
+        setRoute(result);
+        // Fit the whole route in view — up to now the camera's just wherever
+        // the last search/map-tap/pick left it (often centered on only the
+        // destination), which is why only one end tended to show. Re-fits on
+        // every successful fetch, including a costing-switch refetch, since
+        // a walk/bike/drive route can trace a meaningfully different path.
+        cameraRef.current?.fitBounds(boundsFromRouteCoordinates(result.geometry.coordinates), {
+          padding: ROUTE_FIT_PADDING,
+          duration: 800,
+        });
+      })
       .catch(e => {
         setRoute(null);
         setRouteError(e.message === 'Valhalla 400' ? 'No route found between these points.' : 'Could not fetch route.');
