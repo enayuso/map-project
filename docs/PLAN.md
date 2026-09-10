@@ -116,6 +116,8 @@ OSM's data model deliberately doesn't hold things specific to *our* product: ver
 
 **Output:** tap two points on the map, get a route + turn-by-turn instructions + a (static) ETA — done both on the backend and in the app. **Client-side wiring**: a "🧭 Directions" button in [mobile/App.tsx](../mobile/App.tsx) lets the user set origin/destination via map taps or search selection, drawing the route line and a bottom-sheet instruction panel (with a 🚗/🚶/🚲 costing switcher) — see [mobile/src/routing/](../mobile/src/routing/). The polyline-decoding/response-parsing logic was independently verified correct against a live Valhalla response (decoded points matched the query's origin/destination exactly, all within Belize's bounding box); the on-device tap interaction still wants the same manual real-Simulator.app spot-check Phase 2's search box needed, for the same reason (see [mobile/README.md](../mobile/README.md) issues 6-8).
 
+**Update (2026-09-10)**: replaced the implicit "first search picks origin, second picks destination" flow with an explicit Naver/Kakao-style two-field route card (`src/routing/DirectionsSearchPanel.tsx`) — independently searchable/tappable origin and destination fields, a "use current location" shortcut, and a swap button, so either endpoint can be set in any order with visible feedback about what's already picked, rather than a hint text and a silent pin. See [mobile/README.md](../mobile/README.md)'s Directions section for the full writeup.
+
 ---
 
 ## Phase 4.5 — UX Polish Toward Kakao/Naver Parity

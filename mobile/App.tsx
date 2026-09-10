@@ -31,8 +31,9 @@ import basicStyle from './src/styles/basic.json';
 import hybridStyle from './src/styles/hybrid.json';
 import SearchBox from './src/search/SearchBox';
 import { searchNearby, type SearchResult } from './src/search/api';
-import { fetchRoute, type Costing, type LatLon, type RouteResult } from './src/routing/api';
+import { fetchRoute, type Costing, type RouteResult } from './src/routing/api';
 import RoutePanel from './src/routing/RoutePanel';
+import DirectionsSearchPanel from './src/routing/DirectionsSearchPanel';
 import NavigationBar from './src/routing/NavigationBar';
 import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
@@ -178,9 +179,18 @@ function App(): React.JSX.Element {
   };
 
   // --- Routing state ---
+  // origin/destination carry a display name (not just LatLon) so
+  // DirectionsSearchPanel's two fields have something to show — a search
+  // selection has a real name; a map tap gets a generic placeholder one
+  // (see handleMapPress). fetchRoute below only reads .lat/.lon off these,
+  // same as it always did.
   const [routingActive, setRoutingActive] = useState(false);
-  const [origin, setOrigin] = useState<LatLon | null>(null);
-  const [destination, setDestination] = useState<LatLon | null>(null);
+  const [origin, setOrigin] = useState<SearchResult | null>(null);
+  const [destination, setDestination] = useState<SearchResult | null>(null);
+  // Which field the next map tap (handleMapPress) or "use current location"
+  // shortcut should fill — tracks whichever field the user last focused in
+  // DirectionsSearchPanel, defaulting to origin whenever routing mode starts.
+  const [activeRouteField, setActiveRouteField] = useState<'origin' | 'destination'>('origin');
   const [costing, setCosting] = useState<Costing>('auto');
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -307,31 +317,76 @@ function App(): React.JSX.Element {
   };
 
   const handleSelect = (result: SearchResult) => {
-    if (routingActive) {
-      if (!origin) {
-        setOrigin({ lat: result.lat, lon: result.lon });
-      } else {
-        setDestination({ lat: result.lat, lon: result.lon });
-      }
-      return;
-    }
     setSelectedPlace(result);
     recordRecentSearch(result);
     cameraRef.current?.flyTo({ center: [result.lon, result.lat], zoom: 16, duration: 1200 });
   };
 
+  // --- DirectionsSearchPanel wiring ---
+  // Each field is independently searchable/tappable now (Naver/Kakao-style),
+  // not "first search picks origin, second picks destination" — see that
+  // component's own header comment for why this replaced the old flow.
+  const handleSelectOrigin = (result: SearchResult) => {
+    setOrigin(result);
+    recordRecentSearch(result);
+    if (!destination) setActiveRouteField('destination'); // advance to the other empty field
+  };
+
+  const handleSelectDestination = (result: SearchResult) => {
+    setDestination(result);
+    recordRecentSearch(result);
+    if (!origin) setActiveRouteField('origin');
+  };
+
+  const handleClearOrigin = () => {
+    setOrigin(null);
+    setActiveRouteField('origin');
+  };
+
+  const handleClearDestination = () => {
+    setDestination(null);
+    setActiveRouteField('destination');
+  };
+
+  const handleSwapRoutePoints = () => {
+    setOrigin(destination);
+    setDestination(origin);
+  };
+
+  const handleUseCurrentLocationAsOrigin = () => {
+    if (!locationEnabled) setLocationEnabled(true);
+    if (!currentPosition) return; // permission/fix not ready yet — nothing to fill in with
+    setOrigin({
+      id: 'current-location',
+      name: 'My location',
+      subtitle: 'Current position',
+      lat: currentPosition.coords.latitude,
+      lon: currentPosition.coords.longitude,
+      kind: 'poi',
+    });
+    if (!destination) setActiveRouteField('destination');
+  };
+
   const handleMapPress = async (event: NativeSyntheticEvent<PressEvent>) => {
     if (routingActive) {
       const [lon, lat] = event.nativeEvent.lngLat;
-      if (!origin) {
-        setOrigin({ lat, lon });
-      } else if (!destination) {
-        setDestination({ lat, lon });
+      // Fills whichever field is currently focused (see DirectionsSearchPanel's
+      // onFocusField) — not always "origin first" — a tapped point has no
+      // real name, unlike a search pick, so it gets a generic placeholder.
+      const tapped: SearchResult = {
+        id: `tapped-${lat},${lon}`,
+        name: 'Dropped pin',
+        subtitle: 'Tapped on map',
+        lat,
+        lon,
+        kind: 'poi',
+      };
+      if (activeRouteField === 'origin') {
+        setOrigin(tapped);
+        if (!destination) setActiveRouteField('destination');
       } else {
-        // Both already set — a new tap starts a fresh route.
-        setOrigin({ lat, lon });
-        setDestination(null);
-        setRoute(null);
+        setDestination(tapped);
+        if (!origin) setActiveRouteField('origin');
       }
       return;
     }
@@ -351,7 +406,8 @@ function App(): React.JSX.Element {
     setSelectedPlace(null);
     setRoutingActive(true);
     setOrigin(null);
-    setDestination({ lat: place.lat, lon: place.lon });
+    setDestination(place);
+    setActiveRouteField('origin');
   };
 
   const toggleRouting = () => {
@@ -361,11 +417,12 @@ function App(): React.JSX.Element {
     } else {
       setRoutingActive(true);
       closeCategoryBrowsing(); // category chips don't mean anything mid-directions
+      setActiveRouteField('origin');
       // If a place is already selected (from search or a map tap), use it
       // as the destination right away — the common "look at a place, then
       // get directions to it" flow.
       if (selectedPlace) {
-        setDestination({ lat: selectedPlace.lat, lon: selectedPlace.lon });
+        setDestination(selectedPlace);
         setSelectedPlace(null);
       }
     }
@@ -457,27 +514,37 @@ function App(): React.JSX.Element {
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
 
-      {!navigationActive && (
+      {!routingActive && !navigationActive && (
         <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
+      )}
+
+      {routingActive && !navigationActive && (
+        <DirectionsSearchPanel
+          origin={origin}
+          destination={destination}
+          activeField={activeRouteField}
+          onFocusField={setActiveRouteField}
+          onSelectOrigin={handleSelectOrigin}
+          onSelectDestination={handleSelectDestination}
+          onClearOrigin={handleClearOrigin}
+          onClearDestination={handleClearDestination}
+          onSwap={handleSwapRoutePoints}
+          onUseCurrentLocation={handleUseCurrentLocationAsOrigin}
+          onClose={toggleRouting}
+          recentSearches={recentSearches}
+          favorites={favorites}
+        />
       )}
 
       {!routingActive && !navigationActive && (
         <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
       )}
 
-      {!navigationActive && (
+      {!routingActive && !navigationActive && (
         <View style={styles.directionsButtonWrap}>
           <Pressable style={styles.directionsButton} onPress={toggleRouting}>
-            <Text style={styles.directionsButtonText}>
-              {routingActive ? '✕ Cancel directions' : '🧭 Directions'}
-            </Text>
+            <Text style={styles.directionsButtonText}>🧭 Directions</Text>
           </Pressable>
-          {routingActive && !origin && (
-            <Text style={styles.hint}>Tap the map or search to set your start point</Text>
-          )}
-          {routingActive && origin && !destination && (
-            <Text style={styles.hint}>Now tap the map or search for your destination</Text>
-          )}
         </View>
       )}
 
@@ -610,16 +677,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
     fontSize: 13,
-  },
-  hint: {
-    marginTop: 6,
-    fontSize: 12,
-    color: '#3a3226',
-    backgroundColor: '#ffffffdd',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    alignSelf: 'flex-start',
   },
   zoomControl: {
     position: 'absolute',
