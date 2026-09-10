@@ -2,6 +2,13 @@
 # Full Phase 2 POI-index pipeline: export named POI points from PostGIS,
 # categorize them, and (re)load them into Typesense.
 # Requires: backend/ (PostGIS) and search/ (Typesense) stacks both running.
+#
+# This rebuilds the collection from scratch (OSM only). To also merge in
+# Overture Maps' supplementary POI data afterwards, run
+# `python3 scripts/merge_overture_places.py` right after this script finishes
+# — see search/README.md's "Optional supplement: Overture Maps" section for
+# the one-time setup and why. Order matters: this script drops and recreates
+# the collection, so the Overture merge must always come after, never before.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

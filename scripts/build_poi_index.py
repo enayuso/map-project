@@ -93,6 +93,12 @@ def ensure_collection():
             {"name": "category", "type": "string", "facet": True},
             {"name": "osm_tag", "type": "string"},
             {"name": "location", "type": "geopoint"},
+            # "osm" for everything this script loads, "overture" for anything
+            # scripts/merge_overture_places.py appends afterwards — lets a
+            # supplementary source share this collection without the two
+            # becoming indistinguishable. See docs/research/
+            # 08-comparative-data-sourcing-landscape.md for why Overture.
+            {"name": "source", "type": "string", "facet": True},
         ],
     }
     status, body = typesense_request("POST", "/collections", json.dumps(schema).encode())
@@ -115,6 +121,7 @@ def load_documents(csv_path: str):
                 "name": name,
                 "category": category,
                 "osm_tag": osm_tag,
+                "source": "osm",
                 "location": [float(lat), float(lon)],
             })
 

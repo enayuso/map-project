@@ -32,6 +32,8 @@ venv/
 # Data files (large, regenerable — fetched/built by Phase 0/1 scripts, not committed)
 data/raw/
 data/tiles/
+data/overture/
+data/audit-cayo-toledo/
 *.osm.pbf
 *.mbtiles
 
