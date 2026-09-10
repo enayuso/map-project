@@ -1,6 +1,6 @@
-# Location Sharing, Shared Lists & Hazard Reports (Phase 4.5)
+# Location Sharing, Shared Lists, Hazard Reports & POI Corrections (Phase 4.5)
 
-Three features, one small service: live "share my location with someone" (Naver/Kakao both have this — Kakao's own "친구위치" just had its time limit removed entirely, per [docs/research/09-kakao-naver-feature-audit.md](../docs/research/09-kakao-naver-feature-audit.md)), shareable saved-place lists (Naver's own Dec 2022 favorites-folder upgrade), and crowdsourced road hazard reports (Waze's core idea, added 2026-09-10 per [docs/research/10-remaining-feature-gaps.md](../docs/research/10-remaining-feature-gaps.md) — a genuinely undocumented-anywhere-digital gap for Belize's flooding/washouts/checkpoints). None is blocked by any Belize-specific data problem the way most of this project's remaining feature gaps are — all three are pure product engineering on top of infrastructure that already exists.
+Four features, one small service: live "share my location with someone" (Naver/Kakao both have this — Kakao's own "친구위치" just had its time limit removed entirely, per [docs/research/09-kakao-naver-feature-audit.md](../docs/research/09-kakao-naver-feature-audit.md)), shareable saved-place lists (Naver's own Dec 2022 favorites-folder upgrade), crowdsourced road hazard reports (Waze's core idea, added 2026-09-10 per [docs/research/10-remaining-feature-gaps.md](../docs/research/10-remaining-feature-gaps.md) — a genuinely undocumented-anywhere-digital gap for Belize's flooding/washouts/checkpoints), and a crowd-sourced POI correction queue (added 2026-09-10 per [docs/research/11-kakao-naver-poi-data-sourcing.md](../docs/research/11-kakao-naver-poi-data-sourcing.md) — Tier 2 of how Kakao/Naver actually source their own place data: anyone can suggest a correction, but a human reviews it before anything publishes). None is blocked by any Belize-specific data problem the way most of this project's remaining feature gaps are — all four are pure product engineering on top of infrastructure that already exists.
 
 ## Model: a short code, not a user account
 
@@ -12,17 +12,20 @@ No login, no friend graph — a share is just a random 6-character code (`create
 
 **Hazard reports use a different secret entirely**: not a short human-readable code (nobody needs to read a hazard report's ID out loud), but a longer `deleteToken` bearer secret returned only to the reporter, kept on-device, needed to retract the report early. Anyone (not just the reporter) can "confirm" a report is still valid — that's the whole point, it's a shared signal. Each hazard type gets its own default lifetime (a checkpoint moves on faster than a real flood does), and every confirmation slides that expiry forward again, capped at 3 days from the original report — same idea as location shares' sliding TTL, just driven by the community instead of the original reporter's own activity.
 
+**POI corrections have no per-submitter secret at all** — unlike everything else in this service, nobody needs to retract or manage their own submission afterward, and there's no per-user identity here to gate on anyway (submissions are anonymous). What's different is the *moderation* model: a correction starts `pending` and stays that way until a human explicitly approves or rejects it via a **local admin script**, never an HTTP endpoint (see the API table below and `scripts/review_poi_corrections.py`'s own header comment for why that's a deliberate choice, not an oversight).
+
 ## Why a custom service, not an off-the-shelf tool
 
 Every other backend piece in this project is a proven, self-hosted OSS tool (Nominatim, Typesense, Valhalla, Martin) — deliberately, per this project's own established pattern of reaching for a real tool before writing custom code. This one's different on purpose: the actual logic here (four small endpoints over one Postgres table) is genuinely too small to justify standing up unfamiliar new infrastructure just to keep that pattern intact — e.g. Redis + a Redis-to-HTTP bridge (`webdis`) would be two brand-new pieces of infrastructure this project has never touched, in service of a feature this size. A small [FastAPI](https://fastapi.tiangolo.com/) app (MIT-licensed, consistent with Locked Decision 4) reusing the **same** `belize` Postgres database every other service already writes to was the simpler choice in practice, not just in principle.
 
 ## Setup
 
-1. All three tables must exist in the shared `belize` database first (one-time, same pattern as every other schema change in this project):
+1. All four tables must exist in the shared `belize` database first (one-time, same pattern as every other schema change in this project):
    ```bash
    scripts/create_location_shares_table.sh
    scripts/create_shared_lists_table.sh
    scripts/create_hazard_reports_table.sh
+   scripts/create_poi_corrections_table.sh
    ```
 2. Start the service (joins the Phase 1 backend's Docker network to reach `postgis` by hostname, same as `search/` and `geocoding/`):
    ```bash
@@ -46,13 +49,23 @@ Every other backend piece in this project is a proven, self-hosted OSS tool (Nom
 | `GET /hazards?min_lat=&max_lat=&min_lon=&max_lon=` | List non-expired reports in a bbox. Returns `{hazards: [...]}`. |
 | `POST /hazards/{id}/confirm` | "Still here" — bumps `expires_at` forward (capped at 3 days from the original report) and increments `confirm_count`. |
 | `DELETE /hazards/{id}?delete_token=` | Retract a report. 404 if the token doesn't match (or the report doesn't exist). |
+| `POST /poi-corrections` — body `{poi_id, poi_name, field, current_value?, suggested_value?, note?}` | Submit a correction (`field` is `name`\|`category`\|`closed`\|`other`). Returns `{id}`. Always lands as `pending` — never applied here. |
+| `GET /poi-corrections?status=pending` | List corrections by status. Read-only — safe to leave open without auth, since nothing here can be mutated through this endpoint. |
 | `GET /health` | `{ok: true}` |
+
+Approving/rejecting a POI correction is **not** an HTTP endpoint — see `scripts/review_poi_corrections.py`, run locally against this same container:
+```bash
+docker exec -it belize-sharing python3 /scripts/review_poi_corrections.py list
+docker exec -it belize-sharing python3 /scripts/review_poi_corrections.py approve <id>
+docker exec -it belize-sharing python3 /scripts/review_poi_corrections.py reject <id> "reason"
+```
 
 ## Verified
 
-All three resource types tested directly against the running service (not just code review):
+All four resource types tested directly against the running service (not just code review):
 - **Shares**: created a share, confirmed `GET` returns exactly what was set, confirmed `PUT` both updates position and pushes `expires_at` forward, confirmed `GET` on a `DELETE`d code returns 404, confirmed `GET`/`PUT` on a code that was never created returns 404.
 - **Lists**: created a list, confirmed `GET` returns exactly what was set, confirmed `PUT` updates both the label and the places, confirmed `GET` after that reflects the change, confirmed `GET` on a `DELETE`d code returns 404.
 - **Hazards**: reported a flooding hazard (confirmed 24h TTL) and a checkpoint (confirmed 4h TTL), confirmed bbox filtering both includes and excludes correctly, confirmed `/confirm` bumps `expires_at` forward, confirmed `DELETE` 404s with a wrong token and succeeds with the right one. Then confirmed live end-to-end through the actual mobile app (report → marker appears → info card shows it correctly).
+- **POI corrections**: submitted a real name correction against a real POI, approved it via `review_poi_corrections.py`, confirmed via a direct Typesense read that the document actually changed — then reverted it the same way and confirmed the revert. Confirmed a `closed`-type report doesn't touch Typesense at all (just prints the manual delete command), confirmed `reject` and confirmed approving an already-decided correction is refused.
 
-See `mobile/README.md`'s location-sharing, shared-lists, search-along-route, and hazard-reporting sections for the client-side UI and its own verification notes.
+See `mobile/README.md`'s location-sharing, shared-lists, search-along-route, hazard-reporting, and POI-correction sections for the client-side UI and its own verification notes.

@@ -93,6 +93,8 @@ import {
 } from './src/hazards/api';
 import { addMyHazardReport, getMyHazardReports, removeMyHazardReport, type MyHazardReport } from './src/hazards/myReports';
 import { indexSpotlightItems, subscribeToSpotlightSelection } from './src/spotlight/api';
+import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
+import { submitPOICorrection, type CorrectionField } from './src/poi-corrections/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -1237,6 +1239,44 @@ function App(): React.JSX.Element {
     setActiveRouteField('origin');
   };
 
+  // --- Report a POI correction (Tier 2 of docs/research/
+  // 11-kakao-naver-poi-data-sourcing.md) ---
+  // correctionTarget is a separate snapshot from selectedPlace, since
+  // opening the sheet closes PlaceCard (same "one bottom sheet at a time"
+  // pattern as startDirectionsTo above) — selectedPlace would already be
+  // null by the time the sheet needs to know what it's reporting on.
+  const [correctionTarget, setCorrectionTarget] = useState<SearchResult | null>(null);
+  const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
+  const [correctionError, setCorrectionError] = useState<string | null>(null);
+
+  const handleOpenCorrection = () => {
+    if (!selectedPlace) return;
+    setCorrectionTarget(selectedPlace);
+    setSelectedPlace(null);
+  };
+
+  const handleSubmitCorrection = async (field: CorrectionField, suggestedValue: string, note: string) => {
+    if (!correctionTarget) return;
+    setCorrectionSubmitting(true);
+    setCorrectionError(null);
+    try {
+      await submitPOICorrection({
+        poiId: correctionTarget.id.replace(/^poi-/, ''),
+        poiName: correctionTarget.name,
+        field,
+        currentValue: field === 'name' ? correctionTarget.name : undefined,
+        suggestedValue: suggestedValue || undefined,
+        note: note || undefined,
+      });
+      setCorrectionTarget(null);
+      Alert.alert('Thanks!', "Your report was submitted — someone will review it before anything changes.");
+    } catch {
+      setCorrectionError('Could not submit — try again.');
+    } finally {
+      setCorrectionSubmitting(false);
+    }
+  };
+
   const toggleRouting = () => {
     if (routingActive) {
       setRoutingActive(false);
@@ -1703,10 +1743,20 @@ function App(): React.JSX.Element {
         onClose={() => setSelectedPlace(null)}
         onDirections={() => selectedPlace && startDirectionsTo(selectedPlace)}
         onToggleFavorite={handleToggleFavorite}
+        onReportIssue={handleOpenCorrection}
+      />
+
+      <ReportCorrectionSheet
+        visible={!!correctionTarget}
+        placeName={correctionTarget?.name ?? ''}
+        submitting={correctionSubmitting}
+        error={correctionError}
+        onClose={() => setCorrectionTarget(null)}
+        onSubmit={handleSubmitCorrection}
       />
 
       <CategoryResultsSheet
-        visible={!!activeCategory && !routingActive && !selectedPlace}
+        visible={!!activeCategory && !routingActive && !selectedPlace && !correctionTarget}
         loading={categoryLoading}
         error={categoryError}
         categoryLabel={activeCategory ? categoryLabel(activeCategory) : ''}

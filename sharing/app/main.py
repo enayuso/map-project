@@ -385,6 +385,69 @@ def delete_hazard(hazard_id: int, delete_token: str):
         conn.close()
 
 
+class SubmitCorrectionBody(BaseModel):
+    poi_id: str
+    poi_name: str
+    field: str  # 'name' | 'category' | 'closed' | 'other'
+    current_value: str | None = None
+    suggested_value: str | None = None
+    note: str | None = Field(default=None, max_length=200)
+
+
+@app.post("/poi-corrections")
+def submit_correction(body: SubmitCorrectionBody):
+    now = datetime.now(timezone.utc)
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO poi_corrections (poi_id, poi_name, field, current_value, suggested_value, note, submitted_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (body.poi_id, body.poi_name, body.field, body.current_value, body.suggested_value, body.note, now),
+            )
+            new_id = cur.fetchone()[0]
+        return {"id": new_id}
+    finally:
+        conn.close()
+
+
+@app.get("/poi-corrections")
+def list_corrections(status: str = "pending"):
+    """Read-only queue listing — low-risk to expose without auth (nothing
+    here can be mutated through this endpoint). Approving/rejecting is
+    deliberately NOT an HTTP endpoint at all — see scripts/
+    review_poi_corrections.py's own header comment for why that's a local
+    admin script instead of another route on this wide-open-CORS,
+    no-auth service."""
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, poi_id, poi_name, field, current_value, suggested_value, note, status, submitted_at "
+                "FROM poi_corrections WHERE status = %s ORDER BY submitted_at ASC",
+                (status,),
+            )
+            rows = cur.fetchall()
+        return {
+            "corrections": [
+                {
+                    "id": r["id"],
+                    "poiId": r["poi_id"],
+                    "poiName": r["poi_name"],
+                    "field": r["field"],
+                    "currentValue": r["current_value"],
+                    "suggestedValue": r["suggested_value"],
+                    "note": r["note"],
+                    "status": r["status"],
+                    "submittedAt": r["submitted_at"].isoformat(),
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        conn.close()
+
+
 @app.get("/health")
 def health():
     return {"ok": True}

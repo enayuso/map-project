@@ -192,6 +192,7 @@ Unlike Phase 5 above, nothing here is waiting on Belize-specific data or a partn
 
 - **Plus Codes / Open Location Code as a backup address system** — see [research/09-kakao-naver-feature-audit.md](research/09-kakao-naver-feature-audit.md)'s recommendation (free/Apache-2.0, unlike what3words' paid API) for exactly the thin-addressing problem this project's own data audits keep surfacing. Explicitly asked to skip for now, keep for later.
 - **Real-time voice-guided walking navigation** (Naver's own June 2026 feature, per the same research doc) — turn-by-turn spoken walking directions, not just a static route. Not attempted yet.
+- **Tier 1 business-owner self-service POI registration** (the Naver Smart Place equivalent — see [research/11-kakao-naver-poi-data-sourcing.md](research/11-kakao-naver-poi-data-sourcing.md)) — owner uploads real business-registration documents, gets verified, then manages their own listing directly. Explicitly deferred (2026-09-10): Belize has no searchable government business-registry equivalent to verify against, and this needs a genuinely separate service/app (owner accounts, document upload/review, its own admin process) rather than an extension of `sharing/`'s existing Tier 2 moderation-queue system.
 - **A "developer console"** — the user's own idea, analogous to a cloud provider's dashboard: a UI for managing important config/model/variable values instead of hand-editing `.env` files. Not scoped yet; revisit once there's a concrete need (e.g. enough environment-specific config across services that hand-editing `.env` files actually becomes painful).
 
 ## Candidate features awaiting selection (2026-09-10)
@@ -203,11 +204,12 @@ See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.m
 - ✅ **iOS Spotlight search integration** — built, see [mobile/README.md](../mobile/README.md).
 - ✅ **Live Activity/Dynamic Island live navigation ETA** — built (new `BelizeMapWidgets` Xcode target), see [mobile/README.md](../mobile/README.md).
 
+**Follow-up (2026-09-10)**: a fifth item, **crowd-sourced POI correction flow**, was added and built after live research into how Kakao/Naver themselves source POI data ([research/11-kakao-naver-poi-data-sourcing.md](research/11-kakao-naver-poi-data-sourcing.md)) — see [mobile/README.md](../mobile/README.md) and `sharing/README.md`. Built as Tier 2 of that research's two-tier model only (moderated crowdsourcing); **Tier 1 (business-owner self-service registration, the Naver Smart Place equivalent) is explicitly deferred** — see "Noted for later" above and the standalone memory note on why it needs its own separate service, not an extension of this one.
+
 Not selected this round, still on the shortlist for later:
 
 - Ferry/water-taxi schedule integration (medium — SPBE/Caribbean Sprinter routes, no existing app covers this)
 - Dive-site layer + border-crossing info cards (small — content-driven POI extensions)
-- Crowd-sourced POI correction flow (small-medium — data-quality feedback loop for the young POI dataset; see [research/11-kakao-naver-poi-data-sourcing.md](research/11-kakao-naver-poi-data-sourcing.md) for the Kakao/Naver moderation-queue blueprint to follow — submit-then-human-review, never a live unreviewed write)
 - iOS home screen widget, App Intents/Siri Shortcuts (medium — same App Group/native-bridge pattern as the Live Activity work)
 
 Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).

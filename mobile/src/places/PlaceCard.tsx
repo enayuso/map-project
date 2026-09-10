@@ -15,6 +15,7 @@ type Props = {
   onClose: () => void;
   onDirections: () => void;
   onToggleFavorite: () => void;
+  onReportIssue: () => void;
 };
 
 export default function PlaceCard({
@@ -24,7 +25,13 @@ export default function PlaceCard({
   onClose,
   onDirections,
   onToggleFavorite,
+  onReportIssue,
 }: Props) {
+  // Corrections only make sense for our own Typesense-backed POIs (see
+  // docs/research/11-kakao-naver-poi-data-sourcing.md) — not Nominatim
+  // addresses, a dropped pin, "my location," or a meetup candidate, none
+  // of which are rows this app could actually patch.
+  const isCorrectablePOI = place?.kind === 'poi' && place.id.startsWith('poi-');
   return (
     <Modal transparent visible={!!place} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
@@ -63,6 +70,12 @@ export default function PlaceCard({
             <Pressable style={styles.directionsButton} onPress={onDirections}>
               <Text style={styles.directionsLabel}>🧭 Directions</Text>
             </Pressable>
+
+            {isCorrectablePOI && (
+              <Pressable style={styles.reportButton} onPress={onReportIssue}>
+                <Text style={styles.reportLabel}>⚠️ Report an issue with this place</Text>
+              </Pressable>
+            )}
           </View>
         )}
       </View>
@@ -154,5 +167,15 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
     fontSize: 14,
+  },
+  reportButton: {
+    marginTop: 10,
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  reportLabel: {
+    color: '#8a8578',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

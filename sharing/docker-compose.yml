@@ -22,6 +22,12 @@ services:
       DB_PASSWORD: devpass123
     ports:
       - "8090:8090"
+    volumes:
+      # Read-only mount of the repo's scripts/ — lets scripts/
+      # review_poi_corrections.py run inside this container (already has
+      # psycopg2 + network access to both postgis and typesense) without
+      # needing its own image/rebuild just for an admin CLI tool.
+      - ../scripts:/scripts:ro
     networks:
       default:
       backend_net:
