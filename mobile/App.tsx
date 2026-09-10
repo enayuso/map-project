@@ -46,7 +46,20 @@ import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 import AttributionFooter from './src/attribution/AttributionFooter';
 import CategoryBar from './src/categories/CategoryBar';
 import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
-import { categoryLabel, haversineKm, type NearbyResult } from './src/categories/categories';
+import { categoryLabel, formatDistanceKm, haversineKm, type NearbyResult } from './src/categories/categories';
+import MeetupPanel, { MAX_PARTICIPANTS, PARTICIPANT_COLORS } from './src/meetup/MeetupPanel';
+import MeetupResultsSheet from './src/meetup/MeetupResultsSheet';
+import { findMeetupCandidates, type MeetupCandidate } from './src/meetup/api';
+import SharingPanel from './src/sharing/SharingPanel';
+import { createShare, getSharedPosition, stopShare, updateShare, type SharedPosition } from './src/sharing/api';
+import MeasureBar, { type MeasureMode } from './src/measure/MeasureBar';
+import {
+  formatAreaKm2,
+  polygonAreaKm2,
+  polylineLengthKm,
+  toClosedRing,
+  type LatLon as MeasureLatLon,
+} from './src/measure/geometry';
 import {
   addFavorite,
   addRecentSearch,
@@ -219,6 +232,109 @@ function App(): React.JSX.Element {
   const handleLocateMe = () => {
     if (!locationEnabled) setLocationEnabled(true);
     setFlyToLocationPending(true);
+  };
+
+  // --- Live location sharing (see sharing/README.md) ---
+  // A short code is the whole access model, no accounts — see that
+  // README's own reasoning. Two independent halves: sharing my own
+  // position (push, on an interval) and viewing someone else's (poll, on
+  // a separate interval) — a device can do either, both, or neither.
+  const [sharingPanelVisible, setSharingPanelVisible] = useState(false);
+  const [mySharingCode, setMySharingCode] = useState<string | null>(null);
+  const [sharingBusy, setSharingBusy] = useState(false);
+  const [sharingError, setSharingError] = useState<string | null>(null);
+  const [viewingCode, setViewingCode] = useState<string | null>(null);
+  const [viewedPosition, setViewedPosition] = useState<SharedPosition | null>(null);
+  const [viewingBusy, setViewingBusy] = useState(false);
+  const [viewingError, setViewingError] = useState<string | null>(null);
+
+  // A ref, not a direct effect dependency — currentPosition updates far
+  // more often than the 15s push interval below should actually fire, and
+  // depending on it directly would reset the interval's own timer on every
+  // GPS tick, which could starve it from ever firing at all if fixes
+  // arrive faster than 15s apart. The interval reads the *latest* position
+  // each time it ticks; only mySharingCode itself (start/stop) should
+  // recreate the interval.
+  const currentPositionRef = useRef(currentPosition);
+  useEffect(() => {
+    currentPositionRef.current = currentPosition;
+  }, [currentPosition]);
+
+  useEffect(() => {
+    if (!mySharingCode) return;
+    const interval = setInterval(() => {
+      const pos = currentPositionRef.current;
+      if (!pos) return;
+      updateShare(mySharingCode, pos.coords.latitude, pos.coords.longitude).catch(() => {
+        // The share expired/was removed server-side unexpectedly — stop
+        // pretending to still be sharing rather than retry forever.
+        setMySharingCode(null);
+      });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [mySharingCode]);
+
+  useEffect(() => {
+    if (!viewingCode) return;
+    const poll = () => {
+      getSharedPosition(viewingCode)
+        .then(pos => {
+          setViewedPosition(pos);
+          setViewingError(null);
+        })
+        .catch(e => {
+          setViewedPosition(null);
+          setViewingError(e.message);
+        });
+    };
+    poll(); // fetch immediately, don't make the viewer wait out the first interval
+    const interval = setInterval(poll, 10000);
+    return () => clearInterval(interval);
+  }, [viewingCode]);
+
+  const handleStartSharing = async () => {
+    if (!locationEnabled) setLocationEnabled(true);
+    if (!currentPosition) {
+      setSharingError('Waiting for a GPS fix — try again in a moment.');
+      return;
+    }
+    setSharingBusy(true);
+    setSharingError(null);
+    try {
+      const { code } = await createShare(currentPosition.coords.latitude, currentPosition.coords.longitude);
+      setMySharingCode(code);
+    } catch {
+      setSharingError('Could not start sharing — try again.');
+    } finally {
+      setSharingBusy(false);
+    }
+  };
+
+  const handleStopSharing = () => {
+    if (mySharingCode) stopShare(mySharingCode).catch(() => {}); // best-effort — it'll expire on its own regardless
+    setMySharingCode(null);
+  };
+
+  const handleStartViewing = async (rawCode: string) => {
+    const code = rawCode.trim().toUpperCase();
+    if (!code) return;
+    setViewingBusy(true);
+    setViewingError(null);
+    try {
+      const pos = await getSharedPosition(code);
+      setViewedPosition(pos);
+      setViewingCode(code);
+    } catch (e) {
+      setViewingError(e instanceof Error ? e.message : 'Could not find that share.');
+    } finally {
+      setViewingBusy(false);
+    }
+  };
+
+  const handleStopViewing = () => {
+    setViewingCode(null);
+    setViewedPosition(null);
+    setViewingError(null);
   };
 
   // --- Routing state ---
@@ -431,6 +547,138 @@ function App(): React.JSX.Element {
     setCategoryError(null);
   };
 
+  // --- Fair meeting-point calculator ---
+  // Per docs/research/09-kakao-naver-feature-audit.md, neither Kakao Map
+  // nor Naver Map actually has this natively (both punt to third-party
+  // apps built on their APIs) — see src/meetup/api.ts's own header comment
+  // for the actual fairness logic (minimax on real Valhalla travel times,
+  // not a straight-line geometric midpoint).
+  const [meetupActive, setMeetupActive] = useState(false);
+  const [participants, setParticipants] = useState<(SearchResult | null)[]>([null, null]);
+  const [activeParticipantIndex, setActiveParticipantIndex] = useState(0);
+  const [meetupCandidates, setMeetupCandidates] = useState<MeetupCandidate[]>([]);
+  const [meetupResultsVisible, setMeetupResultsVisible] = useState(false);
+  const [meetupLoading, setMeetupLoading] = useState(false);
+  const [meetupError, setMeetupError] = useState<string | null>(null);
+
+  const resetMeetup = () => {
+    setMeetupActive(false);
+    setParticipants([null, null]);
+    setMeetupCandidates([]);
+    setMeetupResultsVisible(false);
+    setMeetupError(null);
+  };
+
+  const toggleMeetup = () => {
+    if (meetupActive) {
+      resetMeetup();
+    } else {
+      setMeetupActive(true);
+      closeCategoryBrowsing();
+      if (routingActive) toggleRouting(); // mutually exclusive top-level modes
+      if (measureActive) toggleMeasure();
+      setSelectedPlace(null); // a stale card from earlier browsing shouldn't linger over this
+      setActiveParticipantIndex(0);
+    }
+  };
+
+  const handleSelectParticipant = (index: number, result: SearchResult) => {
+    setParticipants(prev => prev.map((p, i) => (i === index ? result : p)));
+    recordRecentSearch(result);
+    // Advance to the next empty slot, same "keep moving forward" feel as
+    // the directions fields' auto-advance.
+    const nextEmpty = participants.findIndex((p, i) => i !== index && !p);
+    if (nextEmpty !== -1) setActiveParticipantIndex(nextEmpty);
+  };
+
+  const handleClearParticipant = (index: number) => {
+    setParticipants(prev => prev.map((p, i) => (i === index ? null : p)));
+    setActiveParticipantIndex(index);
+  };
+
+  const handleUseCurrentLocationForParticipant = (index: number) => {
+    if (!locationEnabled) setLocationEnabled(true);
+    if (!currentPosition) return;
+    handleSelectParticipant(index, {
+      id: `current-location-${index}`,
+      name: 'My location',
+      subtitle: 'Current position',
+      lat: currentPosition.coords.latitude,
+      lon: currentPosition.coords.longitude,
+      kind: 'poi',
+    });
+  };
+
+  const handleAddParticipant = () => {
+    setParticipants(prev => (prev.length < MAX_PARTICIPANTS ? [...prev, null] : prev));
+    setActiveParticipantIndex(participants.length);
+  };
+
+  const handleRemoveParticipant = (index: number) => {
+    setParticipants(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleFindMeetupPoint = async () => {
+    const filled = participants.filter((p): p is SearchResult => !!p);
+    if (filled.length < 2) return;
+    setMeetupLoading(true);
+    setMeetupError(null);
+    setMeetupResultsVisible(true);
+    try {
+      const candidates = await findMeetupCandidates(filled, 'auto');
+      setMeetupCandidates(candidates);
+      if (candidates.length === 0) setMeetupError('Nothing reachable by everyone nearby.');
+    } catch {
+      setMeetupCandidates([]);
+      setMeetupError('Could not compare travel times — check that everyone has a valid location.');
+    } finally {
+      setMeetupLoading(false);
+    }
+  };
+
+  const handleSelectMeetupCandidate = (candidate: MeetupCandidate) => {
+    // Picking a result ends meetup mode — the natural next step is the
+    // place's own card (Directions from here, etc.), not more comparing.
+    resetMeetup();
+    setSelectedPlace(candidate.place);
+    cameraRef.current?.flyTo({ center: [candidate.place.lon, candidate.place.lat], zoom: 16, duration: 1200 });
+  };
+
+  // --- Distance/area measurement tool ---
+  // Confirmed against live Kakao Map research (see src/measure/geometry.ts's
+  // header comment): their mobile app only has distance (tap points,
+  // cumulative straight-line total, an X to end/clear) — area/radius are
+  // PC-only there. Built here anyway per the original request, following
+  // the same tap-to-place interaction for both modes since there's no
+  // mobile reference for area to diverge from.
+  const [measureActive, setMeasureActive] = useState(false);
+  const [measureMode, setMeasureMode] = useState<MeasureMode>('distance');
+  const [measurePoints, setMeasurePoints] = useState<MeasureLatLon[]>([]);
+
+  const toggleMeasure = () => {
+    if (measureActive) {
+      setMeasureActive(false);
+      setMeasurePoints([]);
+    } else {
+      setMeasureActive(true);
+      closeCategoryBrowsing();
+      if (routingActive) toggleRouting(); // mutually exclusive top-level modes
+      if (meetupActive) toggleMeetup();
+      setMeasureMode('distance');
+      setMeasurePoints([]);
+    }
+  };
+
+  const handleChangeMeasureMode = (mode: MeasureMode) => {
+    setMeasureMode(mode);
+    setMeasurePoints([]); // a path doesn't carry over meaningfully between the two modes
+  };
+
+  const measureTotalLabel =
+    measureMode === 'distance'
+      ? formatDistanceKm(polylineLengthKm(measurePoints))
+      : formatAreaKm2(polygonAreaKm2(measurePoints));
+
   const handleSelect = (result: SearchResult) => {
     setSelectedPlace(result);
     recordRecentSearch(result);
@@ -488,6 +736,12 @@ function App(): React.JSX.Element {
     // behind its back via the plain-tap path below.
     if (pickingMapPointFor) return;
 
+    if (measureActive) {
+      const [lon, lat] = event.nativeEvent.lngLat;
+      setMeasurePoints(prev => [...prev, { lat, lon }]);
+      return;
+    }
+
     if (routingActive) {
       const [lon, lat] = event.nativeEvent.lngLat;
       // Fills whichever field is currently focused (see DirectionsSearchPanel's
@@ -508,6 +762,19 @@ function App(): React.JSX.Element {
         setDestination(tapped);
         if (!origin) setActiveRouteField('origin');
       }
+      return;
+    }
+
+    if (meetupActive) {
+      const [lon, lat] = event.nativeEvent.lngLat;
+      handleSelectParticipant(activeParticipantIndex, {
+        id: `tapped-${lat},${lon}`,
+        name: 'Dropped pin',
+        subtitle: 'Tapped on map',
+        lat,
+        lon,
+        kind: 'poi',
+      });
       return;
     }
 
@@ -537,6 +804,8 @@ function App(): React.JSX.Element {
     } else {
       setRoutingActive(true);
       closeCategoryBrowsing(); // category chips don't mean anything mid-directions
+      if (meetupActive) toggleMeetup(); // mutually exclusive top-level modes
+      if (measureActive) toggleMeasure();
       setActiveRouteField('origin');
       // If a place is already selected (from search or a map tap), use it
       // as the destination right away — the common "look at a place, then
@@ -621,6 +890,60 @@ function App(): React.JSX.Element {
           </Marker>
         )}
 
+        {viewedPosition && (
+          <Marker lngLat={[viewedPosition.lon, viewedPosition.lat]}>
+            <View style={styles.sharedLocationDot} />
+          </Marker>
+        )}
+
+        {meetupActive &&
+          participants.map(
+            (p, i) =>
+              p && (
+                <Marker key={i} lngLat={[p.lon, p.lat]}>
+                  <View style={[styles.pin, { backgroundColor: PARTICIPANT_COLORS[i] }]} />
+                </Marker>
+              ),
+          )}
+        {meetupResultsVisible &&
+          meetupCandidates.map((c, i) => (
+            <Marker
+              key={c.place.id}
+              lngLat={[c.place.lon, c.place.lat]}
+              onPress={() => handleSelectMeetupCandidate(c)}>
+              <View style={[styles.categoryDot, i === 0 && styles.meetupTopPickDot]} />
+            </Marker>
+          ))}
+
+        {measureActive && measureMode === 'distance' && measurePoints.length > 1 && (
+          <GeoJSONSource
+            id="measure-line"
+            data={{ type: 'LineString', coordinates: measurePoints.map(p => [p.lon, p.lat]) }}>
+            <Layer
+              id="measure-line-layer"
+              type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': '#d9773f', 'line-width': 4, 'line-dasharray': [2, 1.5] }}
+            />
+          </GeoJSONSource>
+        )}
+
+        {measureActive && measureMode === 'area' && measurePoints.length > 2 && (
+          <GeoJSONSource
+            id="measure-polygon"
+            data={{ type: 'Polygon', coordinates: [toClosedRing(measurePoints)] }}>
+            <Layer id="measure-polygon-fill" type="fill" paint={{ 'fill-color': '#d9773f', 'fill-opacity': 0.25 }} />
+            <Layer id="measure-polygon-outline" type="line" paint={{ 'line-color': '#d9773f', 'line-width': 3 }} />
+          </GeoJSONSource>
+        )}
+
+        {measureActive &&
+          measurePoints.map((p, i) => (
+            <Marker key={i} lngLat={[p.lon, p.lat]}>
+              <View style={styles.measureVertexDot} />
+            </Marker>
+          ))}
+
         {route && (
           <GeoJSONSource id="route" data={route.geometry}>
             <Layer
@@ -635,8 +958,47 @@ function App(): React.JSX.Element {
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
 
-      {!routingActive && !navigationActive && (
+      {!routingActive && !navigationActive && !meetupActive && !measureActive && (
         <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
+      )}
+
+      {meetupActive && (
+        <MeetupPanel
+          participants={participants}
+          activeIndex={activeParticipantIndex}
+          onFocusParticipant={setActiveParticipantIndex}
+          onSelectParticipant={handleSelectParticipant}
+          onClearParticipant={handleClearParticipant}
+          onUseCurrentLocation={handleUseCurrentLocationForParticipant}
+          onAddParticipant={handleAddParticipant}
+          onRemoveParticipant={handleRemoveParticipant}
+          onFindMeetupPoint={handleFindMeetupPoint}
+          finding={meetupLoading}
+          onClose={toggleMeetup}
+          recentSearches={recentSearches}
+          favorites={favorites}
+        />
+      )}
+
+      <MeetupResultsSheet
+        visible={meetupResultsVisible}
+        loading={meetupLoading}
+        error={meetupError}
+        candidates={meetupCandidates}
+        onSelect={handleSelectMeetupCandidate}
+        onClose={() => setMeetupResultsVisible(false)}
+      />
+
+      {measureActive && (
+        <MeasureBar
+          mode={measureMode}
+          onChangeMode={handleChangeMeasureMode}
+          pointCount={measurePoints.length}
+          totalLabel={measureTotalLabel}
+          onUndo={() => setMeasurePoints(prev => prev.slice(0, -1))}
+          onClear={() => setMeasurePoints([])}
+          onClose={toggleMeasure}
+        />
       )}
 
       {routingActive && !navigationActive && !pickingMapPointFor && (
@@ -668,14 +1030,20 @@ function App(): React.JSX.Element {
         />
       )}
 
-      {!routingActive && !navigationActive && (
+      {!routingActive && !navigationActive && !meetupActive && !measureActive && (
         <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
       )}
 
-      {!routingActive && !navigationActive && (
+      {!routingActive && !navigationActive && !meetupActive && !measureActive && (
         <View style={styles.directionsButtonWrap}>
           <Pressable style={styles.directionsButton} onPress={toggleRouting}>
             <Text style={styles.directionsButtonText}>🧭 Directions</Text>
+          </Pressable>
+          <Pressable style={styles.meetupButton} onPress={toggleMeetup}>
+            <Text style={styles.directionsButtonText}>🤝 Meet Up</Text>
+          </Pressable>
+          <Pressable style={styles.meetupButton} onPress={toggleMeasure}>
+            <Text style={styles.directionsButtonText}>📏 Measure</Text>
           </Pressable>
         </View>
       )}
@@ -734,6 +1102,27 @@ function App(): React.JSX.Element {
           <Text style={styles.satelliteButtonText}>{showSatellite ? '🗺️' : '🛰️'}</Text>
         </Pressable>
       )}
+
+      {!pickingMapPointFor && (
+        <Pressable style={styles.sharingButton} onPress={() => setSharingPanelVisible(v => !v)}>
+          <Text style={styles.satelliteButtonText}>📡</Text>
+        </Pressable>
+      )}
+
+      <SharingPanel
+        visible={sharingPanelVisible}
+        onClose={() => setSharingPanelVisible(false)}
+        myCode={mySharingCode}
+        sharingBusy={sharingBusy}
+        sharingError={sharingError}
+        onStartSharing={handleStartSharing}
+        onStopSharing={handleStopSharing}
+        viewedLabel={viewedPosition ? viewedPosition.label ?? 'Shared location' : null}
+        viewingBusy={viewingBusy}
+        viewingError={viewingError}
+        onStartViewing={handleStartViewing}
+        onStopViewing={handleStopViewing}
+      />
 
       <PlaceCard
         place={routingActive ? null : selectedPlace}
@@ -797,7 +1186,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 164,
     left: 12,
+    right: 12,
     zIndex: 8,
+    flexDirection: 'row',
+    // Three buttons can run wider than smaller screens fit on one line —
+    // wraps to a second row rather than silently overflowing off-screen
+    // (flexDirection: 'row' alone doesn't wrap by default in RN).
+    flexWrap: 'wrap',
   },
   directionsButton: {
     backgroundColor: '#3a3226',
@@ -805,6 +1200,20 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     alignSelf: 'flex-start',
+    marginRight: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  meetupButton: {
+    backgroundColor: '#3a3226',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignSelf: 'flex-start',
+    marginRight: 10,
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 6,
@@ -815,6 +1224,12 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
     fontSize: 13,
+  },
+  meetupTopPickDot: {
+    backgroundColor: '#d9a441',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
   },
   zoomControl: {
     position: 'absolute',
@@ -884,6 +1299,38 @@ const styles = StyleSheet.create({
   },
   satelliteButtonText: {
     fontSize: 20,
+  },
+  sharingButton: {
+    position: 'absolute',
+    bottom: 262,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  sharedLocationDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#00b8d4',
+    borderWidth: 3,
+    borderColor: '#ffffff',
+  },
+  measureVertexDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#d9773f',
+    borderWidth: 2,
+    borderColor: '#ffffff',
   },
 });
 

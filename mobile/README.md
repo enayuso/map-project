@@ -90,6 +90,32 @@ A small, always-visible, tappable footer at the bottom of the map (`src/attribut
 
 **Verified**: TypeScript/ESLint clean, confirmed rendering correctly via simulator screenshot — visible, legible, underlined to signal it's a link, positioned clear of the MapLibre logo and other controls.
 
+### Fair meeting-point calculator (2026-09-10)
+
+Tap **🤝 Meet Up** to add 2-5 people (search, "📍 Use current location", or a map tap — same input methods as Directions), then **Find a fair place to meet**. This is a real differentiator, not catch-up work: per [docs/research/09-kakao-naver-feature-audit.md](../docs/research/09-kakao-naver-feature-audit.md), **neither Kakao Map nor Naver Map actually has this as a native feature** — both punt to third-party apps built on their own APIs for it.
+
+"Fair" means minimax, not average: `src/meetup/api.ts` pulls real restaurant/cafe/bar candidates near the group's centroid from the existing Typesense POI index, then sends every participant × every candidate through Valhalla's `/sources_to_targets` matrix endpoint in **one request** (not N×M individual `/route` calls) to get real road-network travel times, and ranks candidates by the *worst-off* participant's time — a venue where three people arrive in 4/4/25 minutes is not fair just because the average is decent, and a straight-line geometric midpoint would ignore the road network (and Belize's water/highway-only connections) entirely. A venue unreachable for even one participant is disqualified outright, not just penalized. Results show as colored per-participant time chips in a bottom sheet, best match first.
+
+**Verified**: the full pipeline was run directly against real data outside the UI — three synthetic Belize City locations produced sensible, tightly-clustered top picks (3-4 minutes for everyone, real restaurant names) rather than a skewed or nonsensical ranking. TypeScript/ESLint clean, app relaunches without crashing.
+
+### Live location sharing (2026-09-10)
+
+Tap **📡** (above the satellite toggle) to either **share your own location** (generates a 6-character code, no account needed — see [sharing/README.md](../sharing/README.md) for the full access-model reasoning) or **view someone else's** by entering their code. A sharer's position pushes to the new `sharing/` backend service every 15s; a viewer polls every 10s and sees a distinct cyan marker update on the map. Matches Kakao Map's own "친구위치" feature (which just had its time-limit removed entirely, Nov 2025, per [docs/research/09-kakao-naver-feature-audit.md](../docs/research/09-kakao-naver-feature-audit.md)) in spirit — a share's expiry slides forward on every update, so it stays alive indefinitely while genuinely in use, but ages out on its own if abandoned.
+
+**The one genuinely new architectural piece**: every other backend service in this project is an off-the-shelf OSS tool (Nominatim, Typesense, Valhalla, Martin); this one's a small custom FastAPI service instead, reusing the same shared `belize` Postgres database — see `sharing/README.md`'s own reasoning for why a fourth small endpoint set didn't justify pulling in unfamiliar new infrastructure (e.g. Redis + a Redis-to-HTTP bridge) just to avoid writing ~150 lines of custom code.
+
+**Verified**: the full API was tested directly against the running service, not just code-reviewed — create → get (matches exactly) → update (position *and* expiry both move) → get-after-update (reflects the new position) → delete → get-after-delete (404) → get-on-a-code-that-never-existed (404). TypeScript/ESLint clean, app relaunches without crashing.
+
+### Distance/area measurement tool (2026-09-10)
+
+Tap **📏 Measure**, pick Distance or Area, then tap the map to place points — a running total updates with each tap (`src/measure/geometry.ts`), with **↺ Undo** (remove the last point), **✕ Clear** (clear the shape, stay in measuring mode), and **✕ Done** (exit entirely) as three separate actions.
+
+Built from live, targeted research into exactly how Kakao Map's own tool works (not saved as its own numbered research doc, since it's narrowly scoped to this one feature — summarized in `geometry.ts`'s header comment) — the headline finding: **Kakao's mobile app only has distance measurement**; area and radius are confirmed **PC/web-only**, absent from their app entirely. Distance mode here matches their confirmed mobile mechanics (tap to place, cumulative straight-line total, no route-following); area mode extends the same tap-to-place pattern since there's no mobile reference from Kakao to diverge from for it.
+
+Area uses a local equirectangular projection (centered on the polygon's own mean latitude) plus the standard planar shoelace formula — not survey-grade, but accurate at the city/rough-property scale this tool is actually for.
+
+**Verified**: the area formula was checked against two known synthetic shapes (a ~1km² square and a ~6km² rectangle, both near Belize's own latitude) outside the UI — both came back within 0.5% of the expected area. TypeScript/ESLint clean, app relaunches without crashing.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

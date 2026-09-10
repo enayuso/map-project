@@ -1,0 +1,33 @@
+# Phase 4.5: live location sharing. A small custom FastAPI service — not an
+# off-the-shelf tool like every other service in this project, but the
+# actual custom logic here is four small endpoints over one Postgres table,
+# genuinely too small to justify pulling in unfamiliar new infrastructure
+# (e.g. Redis + a Redis-to-HTTP bridge) just to keep "no custom code" —
+# joins the Phase 1 backend's network to reach the same shared `belize`
+# Postgres database every other service already writes to (see
+# scripts/create_location_shares_table.sh for the one-time schema setup).
+#
+# Local dev only — DB credentials below are the same dev-only ones as
+# backend/docker-compose.yml, not real secrets.
+
+services:
+  sharing:
+    build: .
+    container_name: belize-sharing
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgis
+      DB_NAME: belize
+      DB_USER: belize
+      DB_PASSWORD: devpass123
+    ports:
+      - "8090:8090"
+    networks:
+      default:
+      backend_net:
+
+networks:
+  default:
+  backend_net:
+    name: backend_default
+    external: true
