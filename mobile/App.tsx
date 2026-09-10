@@ -34,8 +34,11 @@ import hybridStyle from './src/styles/hybrid.json';
 import SearchBox from './src/search/SearchBox';
 import { reverseGeocode, searchNearby, type SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type RouteResult } from './src/routing/api';
-import RoutePanel from './src/routing/RoutePanel';
-import DirectionsSearchPanel from './src/routing/DirectionsSearchPanel';
+import RoutePanel, { PEEK_HEIGHT as ROUTE_PANEL_PEEK_HEIGHT } from './src/routing/RoutePanel';
+import DirectionsSearchPanel, {
+  PANEL_HEIGHT as DIRECTIONS_PANEL_HEIGHT,
+  PANEL_TOP as DIRECTIONS_PANEL_TOP,
+} from './src/routing/DirectionsSearchPanel';
 import MapPointPicker from './src/routing/MapPointPicker';
 import NavigationBar from './src/routing/NavigationBar';
 import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
@@ -87,13 +90,21 @@ const MAX_ZOOM = 19;
 const MAX_BOUNDS: [number, number, number, number] = [-89.35, 15.75, -86.75, 18.6];
 
 // Screen-space padding for the auto-fit-route camera move below — keeps the
-// route clear of the UI actually covering the map at that moment: generous
-// on top (DirectionsSearchPanel's card) and especially on the bottom (the
-// route/turn-list bottom sheet, which can run up to 55% of screen height —
-// see src/routing/RoutePanel.tsx — though its real content is usually much
-// shorter than that cap). Fixed pixels, not a fraction of screen height,
-// matching how every other camera/UI position constant in this file works.
-const ROUTE_FIT_PADDING = { top: 110, right: 50, bottom: 280, left: 50 };
+// route (both endpoints included) clear of the UI actually covering the map
+// at that moment. Derived directly from DirectionsSearchPanel's and
+// RoutePanel's own exported height constants (not independently guessed —
+// an earlier version of this padding was too small on both edges, letting
+// part of the route render underneath one panel or the other) plus a small
+// breathing-room buffer on each. RoutePanel is a draggable sheet — this
+// only needs to clear its resting (peek) height, not its dragged-open one,
+// since fitting around the fully expanded sheet would leave hardly any map
+// visible at all.
+const ROUTE_FIT_PADDING = {
+  top: DIRECTIONS_PANEL_TOP + DIRECTIONS_PANEL_HEIGHT + 20,
+  right: 40,
+  bottom: ROUTE_PANEL_PEEK_HEIGHT + 20,
+  left: 40,
+};
 
 /** [west, south, east, north] enclosing every coordinate along the route's
  * actual road geometry — not just origin/destination, since a real route

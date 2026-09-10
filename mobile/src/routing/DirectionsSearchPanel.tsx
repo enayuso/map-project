@@ -13,6 +13,16 @@ import type { SearchResult } from '../search/api';
 
 const DROPDOWN_TOP = 172; // just below this whole card, for both rows' dropdowns
 
+// This panel's own real height from its container's top (2 field rows +
+// divider + the close-button row below the card; the hint text is not
+// counted since it only shows before both fields are set, i.e. never at
+// the moment a route — and App.tsx's camera auto-fit — actually exists).
+// Exported so App.tsx's route auto-fit (Camera.fitBounds's top padding)
+// reserves exactly this much space rather than an independent guess that
+// can drift out of sync with this file's own layout.
+export const PANEL_HEIGHT = 130;
+export const PANEL_TOP = 60; // matches container's own `top` below
+
 type Props = {
   origin: SearchResult | null;
   destination: SearchResult | null;
