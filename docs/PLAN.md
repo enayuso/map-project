@@ -196,18 +196,23 @@ Unlike Phase 5 above, nothing here is waiting on Belize-specific data or a partn
 
 ## Candidate features awaiting selection (2026-09-10)
 
-See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.md) for full detail (Belize-relevance + build-complexity per item). Shortlist, not yet chosen for building:
+See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.md) for full detail (Belize-relevance + build-complexity per item). User picked 4 to build (2026-09-10):
 
-- Search-along-route (medium — reuses existing Valhalla route + Typesense search)
-- Crowd-sourced road hazard/incident reporting (medium — flooding/washouts/checkpoints, a real undocumented Belize gap)
+- ✅ **Search-along-route** — built, see [mobile/README.md](../mobile/README.md).
+- ✅ **Crowdsourced road hazard reporting** — built, see [mobile/README.md](../mobile/README.md) and `sharing/README.md`.
+- 🔲 iOS Spotlight search integration — in progress.
+- 🔲 Live Activity/Dynamic Island live navigation ETA — in progress.
+
+Not selected this round, still on the shortlist for later:
+
 - Ferry/water-taxi schedule integration (medium — SPBE/Caribbean Sprinter routes, no existing app covers this)
 - Dive-site layer + border-crossing info cards (small — content-driven POI extensions)
 - Crowd-sourced POI correction flow (small-medium — data-quality feedback loop for the young POI dataset)
-- Live Activity/Dynamic Island live navigation ETA (medium-large — flagship iOS-only differentiator, genuine native Swift work)
-- iOS Spotlight search integration (small-medium — cheapest native-iOS win)
-- iOS home screen widget, App Intents/Siri Shortcuts (medium — same App Group/native-bridge pattern as the widget)
+- iOS home screen widget, App Intents/Siri Shortcuts (medium — same App Group/native-bridge pattern as the Live Activity work)
 
 Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).
+
+**Follow-up (2026-09-10)**: Belize's National Meteorological Service (nms.gov.bz) does not offer a real-time weather API — see [mobile/README.md](../mobile/README.md)'s Weather section. Open-Meteo remains the right choice.
 
 ---
 

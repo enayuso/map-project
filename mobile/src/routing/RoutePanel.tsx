@@ -42,6 +42,7 @@ type Props = {
   onChangeCosting: (c: Costing) => void;
   onClear: () => void;
   onStartNavigation: () => void;
+  onSearchAlongRoute: () => void;
 };
 
 export default function RoutePanel({
@@ -53,6 +54,7 @@ export default function RoutePanel({
   onChangeCosting,
   onClear,
   onStartNavigation,
+  onSearchAlongRoute,
 }: Props) {
   const expandedHeight = Dimensions.get('window').height * EXPANDED_FRACTION;
   const midpoint = (PEEK_HEIGHT + expandedHeight) / 2;
@@ -157,9 +159,14 @@ export default function RoutePanel({
                     <Text style={styles.ferryBadge}>⛴ includes ferry</Text>
                   )}
                 </View>
-                <Pressable style={styles.startButton} onPress={onStartNavigation}>
-                  <Text style={styles.startLabel}>▶ Start</Text>
-                </Pressable>
+                <View style={styles.actionRow}>
+                  <Pressable style={styles.startButton} onPress={onStartNavigation}>
+                    <Text style={styles.startLabel}>▶ Start</Text>
+                  </Pressable>
+                  <Pressable style={styles.alongRouteButton} onPress={onSearchAlongRoute}>
+                    <Text style={styles.alongRouteLabel}>🔍</Text>
+                  </Pressable>
+                </View>
                 <Text style={styles.dragHint}>▲ Drag up for full directions</Text>
               </>
             )}
@@ -271,7 +278,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#2b6cb0',
   },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   startButton: {
+    flex: 1,
     backgroundColor: '#2f9e44',
     borderRadius: 20,
     paddingVertical: 10,
@@ -281,6 +293,18 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 14,
+  },
+  alongRouteButton: {
+    marginLeft: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0ede4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alongRouteLabel: {
+    fontSize: 16,
   },
   dragHint: {
     textAlign: 'center',

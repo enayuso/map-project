@@ -249,6 +249,142 @@ def delete_list(code: str):
         conn.close()
 
 
+class ReportHazardBody(BaseModel):
+    type: str
+    lat: float
+    lon: float
+    note: str | None = Field(default=None, max_length=140)
+
+
+# Per-type default lifetime — a checkpoint or crash is usually gone within a
+# few hours, while a real flood/washout tends to stay impassable much
+# longer (per docs/research/10-remaining-feature-gaps.md's own note on this).
+# Anything not in this map falls back to a plain 6h default (HAZARD_TTL).
+HAZARD_TTL = timedelta(hours=6)
+HAZARD_TYPE_TTL: dict[str, timedelta] = {
+    "flooding": timedelta(hours=24),
+    "washout": timedelta(hours=48),
+    "checkpoint": timedelta(hours=4),
+    "crash": timedelta(hours=3),
+    "hazard": timedelta(hours=6),
+}
+# Every "still here" confirmation pushes expiry forward by this much (capped
+# at MAX_HAZARD_AGE from the original report) — same sliding-TTL idea as
+# location_shares, applied to community reinforcement instead of a single
+# owner's own activity.
+CONFIRM_BUMP = timedelta(hours=3)
+MAX_HAZARD_AGE = timedelta(days=3)
+
+
+def generate_delete_token() -> str:
+    # Longer and full-alphabet unlike the 6-char share/list codes — this is
+    # a bearer secret meant to be copied by the app, never read aloud by a
+    # person, so there's no benefit to a short/unambiguous alphabet here.
+    return "".join(random.choices(string.ascii_letters + string.digits, k=24))
+
+
+@app.post("/hazards")
+def report_hazard(body: ReportHazardBody):
+    now = datetime.now(timezone.utc)
+    ttl = HAZARD_TYPE_TTL.get(body.type, HAZARD_TTL)
+    expires_at = now + ttl
+    delete_token = generate_delete_token()
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO hazard_reports (type, lat, lon, note, delete_token, reported_at, expires_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (body.type, body.lat, body.lon, body.note, delete_token, now, expires_at),
+            )
+            new_id = cur.fetchone()[0]
+        return {"id": new_id, "deleteToken": delete_token, "expiresAt": expires_at.isoformat()}
+    finally:
+        conn.close()
+
+
+@app.get("/hazards")
+def list_hazards(min_lat: float, max_lat: float, min_lon: float, max_lon: float):
+    """Bbox query, same shape as the mobile client already computes for
+    offline-pack downloads (mapRef.getBounds()) — no PostGIS geography type
+    needed at this scale, a plain lat/lon range is exact enough for a bbox
+    filter and keeps this service's schema as simple as location_shares'."""
+    now = datetime.now(timezone.utc)
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, type, lat, lon, note, confirm_count, reported_at, expires_at "
+                "FROM hazard_reports "
+                "WHERE expires_at > %s AND lat BETWEEN %s AND %s AND lon BETWEEN %s AND %s "
+                "ORDER BY reported_at DESC",
+                (now, min_lat, max_lat, min_lon, max_lon),
+            )
+            rows = cur.fetchall()
+        return {
+            "hazards": [
+                {
+                    "id": r["id"],
+                    "type": r["type"],
+                    "lat": r["lat"],
+                    "lon": r["lon"],
+                    "note": r["note"],
+                    "confirmCount": r["confirm_count"],
+                    "reportedAt": r["reported_at"].isoformat(),
+                    "expiresAt": r["expires_at"].isoformat(),
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/hazards/{hazard_id}/confirm")
+def confirm_hazard(hazard_id: int):
+    """"Still here" — any other user can confirm a report is still valid,
+    which both bumps its expiry forward (capped at MAX_HAZARD_AGE from the
+    original report, so a confirmed-forever report can't outlive that cap)
+    and increments confirm_count for future ranking/trust use."""
+    now = datetime.now(timezone.utc)
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE hazard_reports SET "
+                "expires_at = LEAST(reported_at + %s, GREATEST(expires_at, %s) + %s), "
+                "confirm_count = confirm_count + 1 "
+                "WHERE id = %s AND expires_at > %s",
+                (MAX_HAZARD_AGE, now, CONFIRM_BUMP, hazard_id, now),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(404, "Report not found or expired")
+            cur.execute("SELECT expires_at FROM hazard_reports WHERE id = %s", (hazard_id,))
+            expires_at = cur.fetchone()[0]
+        return {"expiresAt": expires_at.isoformat()}
+    finally:
+        conn.close()
+
+
+@app.delete("/hazards/{hazard_id}")
+def delete_hazard(hazard_id: int, delete_token: str):
+    """The reporter's own retract action — requires the delete_token only
+    they received back from report_hazard, same bearer-secret trust model
+    as everything else in this service."""
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM hazard_reports WHERE id = %s AND delete_token = %s",
+                (hazard_id, delete_token),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(404, "Report not found or wrong token")
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
 @app.get("/health")
 def health():
     return {"ok": True}

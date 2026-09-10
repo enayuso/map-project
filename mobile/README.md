@@ -142,6 +142,24 @@ A small **°C/°F toggle** sits in the widget's own header (`src/weather/Weather
 
 **Verified**: the Open-Meteo call was checked directly (real Belize City coordinates, live response) before wiring it in. TypeScript/ESLint clean, app relaunches without crashing.
 
+**Follow-up (2026-09-10)**: checked whether Belize's own National Meteorological Service (nms.gov.bz) offers a real-time weather API. It doesn't — live research found only an interactive station map (`data.nms.gov.bz`, click-a-marker, no visible API) and a manual "Request Data" form, no documented REST/JSON feed. Open-Meteo stays as-is; NMS's manual request channel is noted in [docs/PLAN.md](../docs/PLAN.md) as a possible future contact for official hurricane advisories specifically, not something to integrate now.
+
+### Search along route (2026-09-10)
+
+Per [docs/research/10-remaining-feature-gaps.md](../docs/research/10-remaining-feature-gaps.md) — genuinely useful for Belize's long, sparse inter-town drives where gas/food/ATM stops are few and far between. Tap **🔍** in the route panel (peek view, next to Start) to open a category-chip sheet; picking one (⛽🍽️🏧☕) samples the active route at even intervals (`src/routing/searchAlongRoute.ts`), runs the existing `searchNearby` Typesense query per sample, merges/dedupes results (keeping each place's closest sample), and lists them ordered by *progress along the route* rather than raw distance from one point. Tapping a result replaces the destination and lets the existing route-fetch effect reroute — this app has no multi-stop routing, so "find something along the way, then head there instead" is the natural fit.
+
+No new backend or infrastructure — entirely a client-side sampling layer over routing/search that already existed.
+
+**Verified**: the sampling math (even spacing, capped at 12 samples for long routes, monotonic progress, start/end always included) was checked standalone against a synthetic 112km route. The full pipeline was then verified against **real data**: fetched a real Belize City→Belmopan route from Valhalla (78.5km), sampled it, and queried Typesense for "fuel" at each sample — found 14 real, named gas stations, correctly deduped and ordered by progress, including a genuine ~28km gap with no stations between the Belize City cluster and Belmopan's outskirts (exactly the kind of thing this feature should surface). TypeScript/ESLint clean, app relaunches and renders without crashing.
+
+### Crowdsourced road hazard reporting (2026-09-10)
+
+Per [docs/research/10-remaining-feature-gaps.md](../docs/research/10-remaining-feature-gaps.md) — Waze's core idea, and a genuinely undocumented-anywhere-digital gap for Belize (rainy-season flooding, unpaved-road washouts, informal checkpoints). Tap **⚠️** to show the hazard layer on the map (bbox-queried from `sharing/`'s new `/hazards` endpoints, refreshed as you pan); a **🚧 Report hazard** pill appears to submit one (type + optional note) at your current GPS position, falling back to the map's center if location isn't enabled. Tapping any hazard marker shows its type/age/confirm-count with a **✓ Still here** button anyone can tap (bumps its expiry forward) and a **Remove my report** button only its own reporter sees.
+
+Same no-accounts trust model as location sharing/shared lists: reporting returns a `deleteToken`, kept only on-device (`src/hazards/myReports.ts`, AsyncStorage) — that's what "mine" means, not a login. Each hazard type has its own default lifetime (`sharing/app/main.py`'s `HAZARD_TYPE_TTL`) — a checkpoint expires in 4h, a washout in 48h — and every "still here" confirmation extends it (capped at 3 days from the original report), the same sliding-TTL idea `location_shares` already used, just community-driven instead of owner-driven.
+
+**Verified**: the full `/hazards` API (report → per-type TTL, bbox list query, confirm-bumps-expiry, delete requires the right token and 404s on a wrong one) was exercised directly against the running service with curl — including confirming a real flooding report's TTL extended correctly and a checkpoint outside a tight bbox was correctly excluded. Then confirmed live end-to-end through the actual app: reported a real hazard via the UI, watched it appear as a marker, opened its info card showing "Reported 1 min ago" with working Confirm/Remove buttons, and confirmed the round trip through the real backend and back. TypeScript/ESLint clean, app relaunches without crashing.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

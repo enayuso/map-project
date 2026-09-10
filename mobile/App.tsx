@@ -77,6 +77,20 @@ import {
   getRecentSearches,
   removeFavorite,
 } from './src/places/favorites';
+import AlongRouteSheet from './src/routing/AlongRouteSheet';
+import { searchAlongRoute, type AlongRouteResult } from './src/routing/searchAlongRoute';
+import ReportHazardSheet from './src/hazards/ReportHazardSheet';
+import HazardInfoCard from './src/hazards/HazardInfoCard';
+import {
+  confirmHazard,
+  deleteHazard,
+  listHazards,
+  reportHazard,
+  HAZARD_TYPE_EMOJI,
+  type HazardReport,
+  type HazardType,
+} from './src/hazards/api';
+import { addMyHazardReport, getMyHazardReports, removeMyHazardReport, type MyHazardReport } from './src/hazards/myReports';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -415,6 +429,14 @@ function App(): React.JSX.Element {
   // rather than firing a reverse-geocode request after every single one.
   const handleRegionDidChange = (e: NativeSyntheticEvent<ViewStateChangeEvent>) => {
     setCurrentZoom(e.nativeEvent.zoom);
+
+    if (hazardsVisible) {
+      // Same debounce idea as the map-pick lookup below — coalesces a
+      // flurry of small pans into one bbox refresh instead of one per frame.
+      if (hazardsDebounceRef.current) clearTimeout(hazardsDebounceRef.current);
+      hazardsDebounceRef.current = setTimeout(refreshHazards, 400);
+    }
+
     if (!pickingMapPointFor) return;
     if (pickDebounceRef.current) clearTimeout(pickDebounceRef.current);
     const [lon, lat] = e.nativeEvent.center;
@@ -449,6 +471,54 @@ function App(): React.JSX.Element {
       })
       .finally(() => setRouteLoading(false));
   }, [origin, destination, costing]);
+
+  // --- Search along route ---
+  // Per docs/research/10-remaining-feature-gaps.md: no new backend, just
+  // src/routing/searchAlongRoute.ts sampling the existing route geometry
+  // and reusing src/search/api.ts's searchNearby per sample.
+  const [alongRouteVisible, setAlongRouteVisible] = useState(false);
+  const [alongRouteCategory, setAlongRouteCategory] = useState<string | null>(null);
+  const [alongRouteLoading, setAlongRouteLoading] = useState(false);
+  const [alongRouteError, setAlongRouteError] = useState<string | null>(null);
+  const [alongRouteResults, setAlongRouteResults] = useState<AlongRouteResult[]>([]);
+
+  const handleOpenAlongRoute = () => {
+    setAlongRouteVisible(true);
+  };
+
+  const handleSelectAlongRouteCategory = async (key: string) => {
+    if (!route) return;
+    setAlongRouteCategory(key);
+    setAlongRouteLoading(true);
+    setAlongRouteError(null);
+    try {
+      const results = await searchAlongRoute(route.geometry.coordinates as [number, number][], key);
+      setAlongRouteResults(results);
+      if (results.length === 0) setAlongRouteError(null); // empty state has its own message, not an error
+    } catch {
+      setAlongRouteResults([]);
+      setAlongRouteError('Could not search along this route.');
+    } finally {
+      setAlongRouteLoading(false);
+    }
+  };
+
+  const closeAlongRoute = () => {
+    setAlongRouteVisible(false);
+    setAlongRouteCategory(null);
+    setAlongRouteResults([]);
+    setAlongRouteError(null);
+  };
+
+  const handleSelectAlongRouteResult = (result: AlongRouteResult) => {
+    // Replaces the destination and lets the existing route-fetch effect
+    // reroute — this app doesn't support multi-stop routes, so "search
+    // along the way, then reroute to stop there" is the natural fit rather
+    // than inserting a waypoint into the existing leg.
+    closeAlongRoute();
+    setDestination(result);
+    recordRecentSearch(result);
+  };
 
   // --- Live turn-by-turn navigation ---
   // No map-matching — distance-to-next-turn is straight-line from the live
@@ -860,11 +930,122 @@ function App(): React.JSX.Element {
     }
   };
 
+  // --- Crowdsourced road hazard reporting (Waze's core idea) ---
+  // Per docs/research/10-remaining-feature-gaps.md — genuinely undocumented
+  // gap for Belize's flooding/washouts/checkpoints. hazardsVisible is a map
+  // *layer* (like measure's points), not a modal panel — it doesn't consume
+  // taps or need to be mutually exclusive with anything, so it can just
+  // stay on. hazardReportVisible (the actual report form) IS one of the
+  // dismissable utility overlays below.
+  const [hazardsVisible, setHazardsVisible] = useState(false);
+  const [hazards, setHazards] = useState<HazardReport[]>([]);
+  const [hazardReportVisible, setHazardReportVisible] = useState(false);
+  const [hazardReportSubmitting, setHazardReportSubmitting] = useState(false);
+  const [hazardReportError, setHazardReportError] = useState<string | null>(null);
+  const [selectedHazard, setSelectedHazard] = useState<HazardReport | null>(null);
+  const [hazardConfirming, setHazardConfirming] = useState(false);
+  const [hazardDeleting, setHazardDeleting] = useState(false);
+  const [myHazardReports, setMyHazardReports] = useState<MyHazardReport[]>([]);
+  const hazardsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    getMyHazardReports().then(setMyHazardReports);
+  }, []);
+
+  const refreshHazards = async () => {
+    const bounds = await mapRef.current?.getBounds(); // [west, south, east, north]
+    if (!bounds) return;
+    const [west, south, east, north] = bounds;
+    try {
+      setHazards(await listHazards({ minLat: south, maxLat: north, minLon: west, maxLon: east }));
+    } catch {
+      // A failed refresh just leaves the previous set showing — not worth
+      // a user-facing error for a background layer refresh.
+    }
+  };
+
+  const toggleHazardsLayer = () => {
+    if (hazardsVisible) {
+      setHazardsVisible(false);
+      setHazards([]);
+    } else {
+      setHazardsVisible(true);
+      refreshHazards();
+    }
+  };
+
+  const openHazardReport = () => {
+    closeUtilityPanels();
+    setHazardReportVisible(true);
+    setHazardReportError(null);
+  };
+
+  const handleSubmitHazardReport = async (type: HazardType, note: string) => {
+    let point: { lat: number; lon: number } | null = null;
+    if (currentPosition) {
+      point = { lat: currentPosition.coords.latitude, lon: currentPosition.coords.longitude };
+    } else {
+      const center = await mapRef.current?.getCenter();
+      if (center) point = { lat: center[1], lon: center[0] };
+    }
+    if (!point) {
+      setHazardReportError('Could not determine a location.');
+      return;
+    }
+    setHazardReportSubmitting(true);
+    setHazardReportError(null);
+    try {
+      const res = await reportHazard(type, point.lat, point.lon, note || undefined);
+      await addMyHazardReport({ id: res.id, deleteToken: res.deleteToken });
+      setMyHazardReports(prev => [{ id: res.id, deleteToken: res.deleteToken }, ...prev]);
+      setHazardReportVisible(false);
+      if (!hazardsVisible) setHazardsVisible(true);
+      refreshHazards();
+    } catch {
+      setHazardReportError('Could not submit report — try again.');
+    } finally {
+      setHazardReportSubmitting(false);
+    }
+  };
+
+  const handleConfirmHazard = async () => {
+    if (!selectedHazard) return;
+    setHazardConfirming(true);
+    try {
+      await confirmHazard(selectedHazard.id);
+      setSelectedHazard(null);
+      refreshHazards();
+    } catch {
+      // Leave the card open on failure — the user can just try again.
+    } finally {
+      setHazardConfirming(false);
+    }
+  };
+
+  const handleDeleteHazard = async () => {
+    if (!selectedHazard) return;
+    const mine = myHazardReports.find(r => r.id === selectedHazard.id);
+    if (!mine) return;
+    setHazardDeleting(true);
+    try {
+      await deleteHazard(selectedHazard.id, mine.deleteToken);
+      await removeMyHazardReport(selectedHazard.id);
+      setMyHazardReports(prev => prev.filter(r => r.id !== selectedHazard.id));
+      setSelectedHazard(null);
+      refreshHazards();
+    } catch {
+      // Leave the card open on failure — the user can just try again.
+    } finally {
+      setHazardDeleting(false);
+    }
+  };
+
   // These four are quick, dismissable utility overlays (unlike Directions/
   // Meet Up/Measure's full "modes") — sharing this one helper keeps them
   // from ever rendering on top of each other or the plain search box,
   // which they'd otherwise do since each has its own independent button.
   const closeUtilityPanels = () => {
+    setHazardReportVisible(false);
     setSharingPanelVisible(false);
     setOfflinePanelVisible(false);
     setListsManagerVisible(false);
@@ -1052,6 +1233,7 @@ function App(): React.JSX.Element {
     setRoute(null);
     setRouteError(null);
     setNavigationActive(false);
+    closeAlongRoute();
   };
 
   const showRoutePanel =
@@ -1064,7 +1246,8 @@ function App(): React.JSX.Element {
   // top of the plain search box or each other (closeUtilityPanels above
   // keeps at most one of these four open at a time; this keeps the
   // *other* top-of-screen UI out of their way too).
-  const anyUtilityPanelOpen = sharingPanelVisible || offlinePanelVisible || listsManagerVisible || weatherVisible;
+  const anyUtilityPanelOpen =
+    sharingPanelVisible || offlinePanelVisible || listsManagerVisible || weatherVisible || hazardReportVisible;
 
   return (
     <View style={styles.container}>
@@ -1191,6 +1374,15 @@ function App(): React.JSX.Element {
             />
           </GeoJSONSource>
         )}
+
+        {hazardsVisible &&
+          hazards.map(h => (
+            <Marker key={h.id} lngLat={[h.lon, h.lat]} onPress={() => setSelectedHazard(h)}>
+              <View style={styles.hazardPin}>
+                <Text style={styles.hazardPinEmoji}>{HAZARD_TYPE_EMOJI[h.type]}</Text>
+              </View>
+            </Marker>
+          ))}
       </Map>
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
@@ -1364,6 +1556,27 @@ function App(): React.JSX.Element {
         </Pressable>
       )}
 
+      {!pickingMapPointFor && (
+        <Pressable
+          style={[styles.hazardsButton, hazardsVisible && styles.hazardsButtonActive]}
+          onPress={toggleHazardsLayer}>
+          <Text style={styles.satelliteButtonText}>⚠️</Text>
+        </Pressable>
+      )}
+
+      {hazardsVisible &&
+        !hazardReportVisible &&
+        !routingActive &&
+        !navigationActive &&
+        !meetupActive &&
+        !measureActive && (
+          <View style={styles.reportHazardPillWrap} pointerEvents="box-none">
+            <Pressable style={styles.reportHazardPill} onPress={openHazardReport}>
+              <Text style={styles.reportHazardPillLabel}>🚧 Report hazard</Text>
+            </Pressable>
+          </View>
+        )}
+
       <WeatherWidget
         visible={weatherVisible}
         onClose={() => setWeatherVisible(false)}
@@ -1456,6 +1669,37 @@ function App(): React.JSX.Element {
           setRoutingActive(false);
         }}
         onStartNavigation={handleStartNavigation}
+        onSearchAlongRoute={handleOpenAlongRoute}
+      />
+
+      <AlongRouteSheet
+        visible={alongRouteVisible}
+        activeCategory={alongRouteCategory}
+        loading={alongRouteLoading}
+        error={alongRouteError}
+        results={alongRouteResults}
+        onSelectCategory={handleSelectAlongRouteCategory}
+        onSelectResult={handleSelectAlongRouteResult}
+        onClose={closeAlongRoute}
+      />
+
+      <ReportHazardSheet
+        visible={hazardReportVisible}
+        onClose={() => setHazardReportVisible(false)}
+        locationLabel={currentPosition ? 'at your current location' : 'at the center of the map'}
+        submitting={hazardReportSubmitting}
+        error={hazardReportError}
+        onSubmit={handleSubmitHazardReport}
+      />
+
+      <HazardInfoCard
+        hazard={selectedHazard}
+        isMine={!!selectedHazard && myHazardReports.some(r => r.id === selectedHazard.id)}
+        confirming={hazardConfirming}
+        deleting={hazardDeleting}
+        onClose={() => setSelectedHazard(null)}
+        onConfirm={handleConfirmHazard}
+        onDelete={handleDeleteHazard}
       />
     </View>
   );
@@ -1482,6 +1726,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#2f7d6c',
     borderWidth: 2,
     borderColor: '#ffffff',
+  },
+  hazardPin: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#b3261e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hazardPinEmoji: {
+    fontSize: 14,
   },
   directionsButtonWrap: {
     position: 'absolute',
@@ -1664,6 +1921,48 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 5,
+  },
+  hazardsButton: {
+    position: 'absolute',
+    bottom: 522,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  hazardsButtonActive: {
+    backgroundColor: '#f7dede',
+  },
+  reportHazardPillWrap: {
+    position: 'absolute',
+    bottom: 24,
+    left: 12,
+    right: 12,
+    alignItems: 'center',
+  },
+  reportHazardPill: {
+    backgroundColor: '#b3261e',
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  reportHazardPillLabel: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
   },
   sharedLocationDot: {
     width: 20,
