@@ -63,3 +63,5 @@ That cuts both ways for this project:
 - **Traffic & transit**: explicitly deferred — no data substrate exists; both require either years of accumulated first-party usage data (traffic) or one-time manual authoring (a static GTFS feed for transit).
 
 See [PLAN.md](PLAN.md) for how these findings translate into a phased build order.
+
+**Follow-up (2026-09-10)**: [09-kakao-naver-feature-audit.md](research/09-kakao-naver-feature-audit.md) shifts from *how these apps work* to *what they actually let a user do* — a live 2026 feature audit of both apps, cross-referenced against this project's own status. Headline: most of the remaining gap (transit, live traffic, street view, business self-service) is blocked by the same structural data gaps already documented, not new news — but a real, actionable short list isn't blocked by anything: live location sharing, a free Plus-Codes-based backup address system (directly targeting this project's own repeated finding of thin Belize addressing), a meeting-point calculator neither Kakao nor Naver actually has natively, a distance/area measurement tool, and shareable saved-place folders.
