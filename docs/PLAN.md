@@ -207,7 +207,7 @@ Not selected this round, still on the shortlist for later:
 
 - Ferry/water-taxi schedule integration (medium — SPBE/Caribbean Sprinter routes, no existing app covers this)
 - Dive-site layer + border-crossing info cards (small — content-driven POI extensions)
-- Crowd-sourced POI correction flow (small-medium — data-quality feedback loop for the young POI dataset)
+- Crowd-sourced POI correction flow (small-medium — data-quality feedback loop for the young POI dataset; see [research/11-kakao-naver-poi-data-sourcing.md](research/11-kakao-naver-poi-data-sourcing.md) for the Kakao/Naver moderation-queue blueprint to follow — submit-then-human-review, never a live unreviewed write)
 - iOS home screen widget, App Intents/Siri Shortcuts (medium — same App Group/native-bridge pattern as the Live Activity work)
 
 Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).
