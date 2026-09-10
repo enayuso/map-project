@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import type { Costing, RouteResult } from './api';
 
-const COSTING_LABELS: Record<Costing, string> = {
+export const COSTING_LABELS: Record<Costing, string> = {
   auto: '🚗 Drive',
   pedestrian: '🚶 Walk',
   bicycle: '🚲 Bike',

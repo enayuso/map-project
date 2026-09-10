@@ -2,6 +2,7 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
+import CoreSpotlight
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -30,6 +31,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     )
 
     return true
+  }
+
+  // Handles a tap on one of this app's indexed Spotlight search results
+  // (see SpotlightModule.swift) — iOS relaunches/foregrounds the app and
+  // calls this with a userActivity of type CSSearchableItemActionType
+  // carrying the id we originally indexed it under.
+  func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if userActivity.activityType == CSSearchableItemActionType,
+      let itemId = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String {
+      SpotlightModule.handleContinuation(itemId: itemId)
+      return true
+    }
+    return false
   }
 }
 

@@ -200,8 +200,8 @@ See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.m
 
 - ✅ **Search-along-route** — built, see [mobile/README.md](../mobile/README.md).
 - ✅ **Crowdsourced road hazard reporting** — built, see [mobile/README.md](../mobile/README.md) and `sharing/README.md`.
-- 🔲 iOS Spotlight search integration — in progress.
-- 🔲 Live Activity/Dynamic Island live navigation ETA — in progress.
+- ✅ **iOS Spotlight search integration** — built, see [mobile/README.md](../mobile/README.md).
+- ✅ **Live Activity/Dynamic Island live navigation ETA** — built (new `BelizeMapWidgets` Xcode target), see [mobile/README.md](../mobile/README.md).
 
 Not selected this round, still on the shortlist for later:
 

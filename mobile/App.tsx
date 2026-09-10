@@ -35,14 +35,15 @@ import hybridStyle from './src/styles/hybrid.json';
 import SearchBox from './src/search/SearchBox';
 import { reverseGeocode, searchNearby, type SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type RouteResult } from './src/routing/api';
-import RoutePanel, { PEEK_HEIGHT as ROUTE_PANEL_PEEK_HEIGHT } from './src/routing/RoutePanel';
+import RoutePanel, { COSTING_LABELS, PEEK_HEIGHT as ROUTE_PANEL_PEEK_HEIGHT } from './src/routing/RoutePanel';
 import DirectionsSearchPanel, {
   PANEL_HEIGHT as DIRECTIONS_PANEL_HEIGHT,
   PANEL_TOP as DIRECTIONS_PANEL_TOP,
 } from './src/routing/DirectionsSearchPanel';
 import MapPointPicker from './src/routing/MapPointPicker';
 import NavigationBar from './src/routing/NavigationBar';
-import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
+import { getRemainingTrip, getUpcomingManeuver, maneuverIcon, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
+import { syncLiveActivity, endLiveActivity } from './src/routing/liveActivity';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 import AttributionFooter from './src/attribution/AttributionFooter';
 import CategoryBar from './src/categories/CategoryBar';
@@ -91,6 +92,7 @@ import {
   type HazardType,
 } from './src/hazards/api';
 import { addMyHazardReport, getMyHazardReports, removeMyHazardReport, type MyHazardReport } from './src/hazards/myReports';
+import { indexSpotlightItems, subscribeToSpotlightSelection } from './src/spotlight/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -209,6 +211,34 @@ function App(): React.JSX.Element {
   const recordRecentSearch = (place: SearchResult) => {
     addRecentSearch(place).then(setRecentSearches);
   };
+
+  // --- iOS Spotlight search integration ---
+  // Per docs/research/10-remaining-feature-gaps.md — favorites/recents show
+  // up in the system-wide Spotlight search (swipe down on the home
+  // screen); tapping one jumps straight to that place, cold-launch or not.
+  useEffect(() => {
+    // A plain keyed object, not `Map` — this file already imports MapLibre's
+    // own `Map` React component under that exact name, which shadows the
+    // built-in JS Map class.
+    const deduped: Record<string, SearchResult> = {};
+    // Favorites first — a deliberately saved place is more worth surfacing
+    // in Spotlight than something merely searched once.
+    [...favorites, ...recentSearches].forEach(item => {
+      deduped[item.id] = item;
+    });
+    indexSpotlightItems(Object.values(deduped));
+  }, [favorites, recentSearches]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSpotlightSelection(id => {
+      const match = [...favorites, ...recentSearches].find(item => item.id === id);
+      if (!match) return; // stale index entry (e.g. a favorite since removed) — nothing to jump to
+      setSelectedPlace(match);
+      recordRecentSearch(match);
+      cameraRef.current?.flyTo({ center: [match.lon, match.lat], zoom: 16, duration: 1200 });
+    });
+    return unsubscribe;
+  }, [favorites, recentSearches]);
 
   const isSelectedPlaceFavorite = !!selectedPlace && favorites.some(f => f.id === selectedPlace.id);
 
@@ -1239,6 +1269,34 @@ function App(): React.JSX.Element {
   const showRoutePanel =
     routingActive && !navigationActive && !pickingMapPointFor && (routeLoading || !!route || !!routeError);
   const remainingTrip = route ? getRemainingTrip(route, currentManeuverIndex) : null;
+
+  // --- Live Activity / Dynamic Island (iOS only) ---
+  // Mirrors whatever this live-navigation state already is — see
+  // src/routing/liveActivity.ts's header comment. Ends whenever navigation
+  // stops, whether by arrival or the user tapping "End".
+  useEffect(() => {
+    if (!navigationActive) return;
+    if (navigationArrived) {
+      syncLiveActivity(COSTING_LABELS[costing], {
+        nextInstruction: "You've arrived",
+        distanceToManeuverKm: 0,
+        etaMinutes: 0,
+        maneuverEmoji: '🏁',
+      });
+      return;
+    }
+    if (!upcomingManeuver || !remainingTrip) return;
+    syncLiveActivity(COSTING_LABELS[costing], {
+      nextInstruction: upcomingManeuver.maneuver.instruction,
+      distanceToManeuverKm: upcomingManeuver.distanceToManeuverKm,
+      etaMinutes: Math.round(remainingTrip.durationMin),
+      maneuverEmoji: maneuverIcon(upcomingManeuver.maneuver.type),
+    });
+  }, [navigationActive, navigationArrived, upcomingManeuver, remainingTrip, costing]);
+
+  useEffect(() => {
+    if (!navigationActive) endLiveActivity();
+  }, [navigationActive]);
 
   // Quick, dismissable utility overlays (sharing/offline/lists/weather) —
   // unlike Directions/Meet Up/Measure's full "modes," each has its own
