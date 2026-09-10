@@ -174,6 +174,14 @@ These require data that doesn't exist yet and shouldn't block earlier phases:
 - **Street-level imagery ("Belize Street View")**: a lean single-vehicle 360°-camera + GPS rig covering main highways/town centers — Kakao's 2008-era approach, not Naver's current LiDAR-heavy fleet — is the realistic model, and still a meaningful post-launch investment, not a v1 item.
 - **Offline maps**: bundle a pre-baked national MBTiles/PMTiles file with the mobile app, refreshed from the same Tippecanoe pipeline — cheap to add once Phase 1's tile pipeline exists, worth doing given Belize's low-connectivity rural/dive-site areas.
 
+## Noted for later (2026-09-10) — deferred by choice, not blocked by data
+
+Unlike Phase 5 above, nothing here is waiting on Belize-specific data or a partnership — these are just sequenced after the current build:
+
+- **Plus Codes / Open Location Code as a backup address system** — see [research/09-kakao-naver-feature-audit.md](research/09-kakao-naver-feature-audit.md)'s recommendation (free/Apache-2.0, unlike what3words' paid API) for exactly the thin-addressing problem this project's own data audits keep surfacing. Explicitly asked to skip for now, keep for later.
+- **Real-time voice-guided walking navigation** (Naver's own June 2026 feature, per the same research doc) — turn-by-turn spoken walking directions, not just a static route. Not attempted yet.
+- **A "developer console"** — the user's own idea, analogous to a cloud provider's dashboard: a UI for managing important config/model/variable values instead of hand-editing `.env` files. Not scoped yet; revisit once there's a concrete need (e.g. enough environment-specific config across services that hand-editing `.env` files actually becomes painful).
+
 ---
 
 ## Recommended stack (subject to Phase 0 confirmation)
