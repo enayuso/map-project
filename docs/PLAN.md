@@ -194,6 +194,21 @@ Unlike Phase 5 above, nothing here is waiting on Belize-specific data or a partn
 - **Real-time voice-guided walking navigation** (Naver's own June 2026 feature, per the same research doc) — turn-by-turn spoken walking directions, not just a static route. Not attempted yet.
 - **A "developer console"** — the user's own idea, analogous to a cloud provider's dashboard: a UI for managing important config/model/variable values instead of hand-editing `.env` files. Not scoped yet; revisit once there's a concrete need (e.g. enough environment-specific config across services that hand-editing `.env` files actually becomes painful).
 
+## Candidate features awaiting selection (2026-09-10)
+
+See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.md) for full detail (Belize-relevance + build-complexity per item). Shortlist, not yet chosen for building:
+
+- Search-along-route (medium — reuses existing Valhalla route + Typesense search)
+- Crowd-sourced road hazard/incident reporting (medium — flooding/washouts/checkpoints, a real undocumented Belize gap)
+- Ferry/water-taxi schedule integration (medium — SPBE/Caribbean Sprinter routes, no existing app covers this)
+- Dive-site layer + border-crossing info cards (small — content-driven POI extensions)
+- Crowd-sourced POI correction flow (small-medium — data-quality feedback loop for the young POI dataset)
+- Live Activity/Dynamic Island live navigation ETA (medium-large — flagship iOS-only differentiator, genuine native Swift work)
+- iOS Spotlight search integration (small-medium — cheapest native-iOS win)
+- iOS home screen widget, App Intents/Siri Shortcuts (medium — same App Group/native-bridge pattern as the widget)
+
+Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).
+
 ---
 
 ## Recommended stack (subject to Phase 0 confirmation)
