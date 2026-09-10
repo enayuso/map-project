@@ -49,7 +49,44 @@ These are a first pass sized to comfortably cover each town — worth revisiting
 - Bounding boxes are rectangular and drawn generously; they include some surrounding water/unrelated area, which is harmless (just extra empty space) rather than a quality problem.
 - This is OSM data only — it does not yet include anything from LIC/BNSDI (see [05-belize-official-data-verification.md](05-belize-official-data-verification.md)), which if/when obtained should supersede OSM specifically for cadastral parcels and administrative boundaries.
 
+## Follow-up (2026-09-10): Cayo/Toledo — testing HOT's 2024 wildfire-response activation
+
+[08-comparative-data-sourcing-landscape.md](08-comparative-data-sourcing-landscape.md) found that the Humanitarian OpenStreetMap Team ran a real, dated building-mapping activation across Cayo and Toledo Districts in mid-2024, in response to that year's wildfires. Rather than assume this improved the underlying data, this audit was extended (same `osmium extract` + tag-count methodology as above, plus a new timestamp-histogram check) to three real, OSM-geocoded areas — coordinates pulled directly from our own `planet_osm_point` table, not guessed:
+
+- **San Ignacio/Santa Elena** (Cayo District's twin main towns): `-89.10,17.13,-89.03,17.19`
+- **Punta Gorda** (Toledo District's main town): `-88.85,16.07,-88.77,16.14`
+- **Toledo villages cluster** (San Pedro Columbia, Crique Jute, and a third "Santa Elena" village — the actual named target area of HOT's 2024 activation, per its own wiki page): `-89.16,16.19,-88.90,16.33`
+
+| Metric | San Ignacio/Santa Elena | Punta Gorda | Toledo villages cluster |
+|---|---:|---:|---:|
+| Road ways (`highway=*`) | 1,796 | 507 | 591 |
+| — with a `name` tag | 512 (**29%**) | 125 (**25%**) | 108 (**18%**) |
+| — with `oneway=yes` | 85 (5%) | 11 (2%) | 2 (0.3%) |
+| — with `maxspeed` | 463 (26%) | 24 (5%) | 57 (10%) |
+| — with `surface` tagged | 1,791 (**100%**) | 506 (**100%**) | 591 (**100%**) |
+| Turn-restriction relations | 9 | 0 | 0 |
+| Buildings (`building=*`) | 9,085 | 3,579 | 5,044 |
+| — with `addr:housenumber` | 844 (9%) | 8 (0.2%) | 0 (0%) |
+| — with `addr:street` | 942 (10%) | 128 (4%) | 9 (0.2%) |
+| Admin boundary relations | 24 (levels 2,4,7,8,9,10) | 5 (levels 2,4,8) | 11 (level 9 only) |
+| `place=*` nodes | 24 | 13 | 21 |
+
+**This broadly confirms the original two pilot areas' patterns generalize**: near-100% surface tagging everywhere (a real, consistent OSM-Belize strength), thin address completeness everywhere (0–10% `addr:housenumber`, worse than either original pilot area — reinforcing [03-geocoding-search.md](03-geocoding-search.md)'s interpolation-fallback design as the right call countrywide, not just for the two towns already audited), and road naming that gets worse the more rural the area (18% in the Toledo villages cluster vs. Belize City's 46%).
+
+**The actual test — does HOT's activation show up as a measurable data-quality change?** Tag *counts* alone can't answer this (a building existing doesn't say when or why it was added), so this pulled each building way's edit timestamp directly (`osmium cat -f opl`, filtered to `building=*`) and histogrammed by year, then by month for 2024:
+
+| Area | Total buildings | Edited in 2024 | 2024 edits concentrated in... |
+|---|---:|---:|---|
+| Toledo villages cluster (HOT's actual target area) | 5,044 | 1,462 (**29%**) | **816 in June, 373 in July, 271 in August — 99.9% of all 2024 edits fall inside HOT's own documented June 4–August 19, 2024 response window** |
+| Belize City (original pilot, not a HOT target) | 19,256 | 2,193 (11%) | Spread unevenly across the year (a separate Feb/July spike of unknown origin — changeset/user metadata is stripped from this extract, so it can't be attributed without further digging) |
+| Ambergris Caye (original pilot, not a HOT target) | 5,506 | 65 (1%) | No comparable spike |
+
+**This is about as clean an empirical confirmation as tag/timestamp analysis alone can give**: 29% of all buildings in the exact area HOT's wiki names (San Pedro Columbia, Crique Jute, and neighboring villages) were touched, and that activity lands almost perfectly inside the documented response window — not spread across the year the way ordinary organic editing would be. Belize City's own, much larger 2024 edit spike is a useful control: it shows edit spikes aren't unusual on their own, but it doesn't share Toledo's tight date-window match, and Belize City was never part of the 2024 wildfire response's named scope — so it's left uninvestigated rather than misattributed to HOT.
+
+**Practical implication**: this project's OSM extract already carries a real, dateable data-quality improvement in rural Toledo specifically because of that 2024 activation — not something to build, just something to be aware is already in the data. It does **not** change the address/road-naming gaps found above (HOT's activation mapped buildings, not addresses or road names), so the interpolation-first geocoding approach and field-naming-pass recommendations from the original audit still stand everywhere, Toledo included.
+
 ## Files produced
 
 - `data/raw/belize-latest.osm.pbf` — full-country extract (not committed to git, regenerable; see `.gitignore`)
 - `data/pilot/belize-city.osm.pbf`, `data/pilot/ambergris-caye.osm.pbf` — clipped pilot extracts (also not committed; regenerate via `osmium extract` with the bounding boxes above)
+- `data/audit-cayo-toledo/san-ignacio-santa-elena.osm.pbf`, `punta-gorda.osm.pbf`, `toledo-villages.osm.pbf` — the follow-up's three clipped extracts (also not committed; regenerate via `osmium extract` with the bounding boxes in the follow-up section above)
