@@ -68,7 +68,8 @@ import ListViewSheet from './src/lists/ListViewSheet';
 import { createList, deleteList, getList, type ListPlace, type SharedList } from './src/lists/api';
 import { addLocalList, getLocalLists, removeLocalList, type LocalList } from './src/lists/localLists';
 import WeatherWidget from './src/weather/WeatherWidget';
-import { fetchCurrentWeather, type CurrentWeather } from './src/weather/api';
+import { fetchCurrentWeather, type CurrentWeather, type TempUnit } from './src/weather/api';
+import { getTempUnitPreference, setTempUnitPreference } from './src/weather/tempUnitPreference';
 import {
   addFavorite,
   addRecentSearch,
@@ -831,6 +832,17 @@ function App(): React.JSX.Element {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weather, setWeather] = useState<CurrentWeather | null>(null);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+  const [tempUnit, setTempUnit] = useState<TempUnit>('C');
+
+  useEffect(() => {
+    getTempUnitPreference().then(setTempUnit);
+  }, []);
+
+  const handleToggleTempUnit = () => {
+    const next: TempUnit = tempUnit === 'C' ? 'F' : 'C';
+    setTempUnit(next);
+    setTempUnitPreference(next);
+  };
 
   const handleRefreshWeather = async () => {
     setWeatherLoading(true);
@@ -1359,6 +1371,8 @@ function App(): React.JSX.Element {
         weather={weather}
         error={weatherError}
         onRefresh={handleRefreshWeather}
+        unit={tempUnit}
+        onToggleUnit={handleToggleTempUnit}
       />
 
       <ListsManagerPanel

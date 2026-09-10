@@ -32,3 +32,14 @@ export async function fetchCurrentWeather(lat: number, lon: number): Promise<Cur
     humidityPct: body.current.relative_humidity_2m,
   };
 }
+
+export type TempUnit = 'C' | 'F';
+
+/** Converts and formats for display — fetchCurrentWeather always returns
+ * Celsius (Open-Meteo's default, and the value this project stores/passes
+ * around internally); the unit toggle is purely a display concern, not
+ * worth a second network request to re-fetch in a different unit. */
+export function formatTemp(tempC: number, unit: TempUnit): string {
+  const value = unit === 'F' ? tempC * (9 / 5) + 32 : tempC;
+  return `${Math.round(value)}°${unit}`;
+}

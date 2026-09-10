@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { weatherCodeInfo } from './weatherCodes';
-import type { CurrentWeather } from './api';
+import { formatTemp, type CurrentWeather, type TempUnit } from './api';
 
 type Props = {
   visible: boolean;
@@ -10,9 +10,20 @@ type Props = {
   weather: CurrentWeather | null;
   error: string | null;
   onRefresh: () => void;
+  unit: TempUnit;
+  onToggleUnit: () => void;
 };
 
-export default function WeatherWidget({ visible, onClose, loading, weather, error, onRefresh }: Props) {
+export default function WeatherWidget({
+  visible,
+  onClose,
+  loading,
+  weather,
+  error,
+  onRefresh,
+  unit,
+  onToggleUnit,
+}: Props) {
   if (!visible) return null;
 
   const info = weather ? weatherCodeInfo(weather.weatherCode) : null;
@@ -22,6 +33,15 @@ export default function WeatherWidget({ visible, onClose, loading, weather, erro
       <View style={styles.card}>
         <View style={styles.header}>
           <Text style={styles.title}>Weather here</Text>
+          {/* Its own pressable, deliberately outside weatherRow below —
+           * that whole row is tap-to-refresh, and this shouldn't also
+           * trigger a refetch just for switching units (formatTemp is a
+           * pure display conversion, no new request needed). */}
+          <Pressable style={styles.unitToggle} onPress={onToggleUnit} hitSlop={8}>
+            <Text style={[styles.unitLabel, unit === 'C' && styles.unitLabelActive]}>°C</Text>
+            <Text style={styles.unitSeparator}>/</Text>
+            <Text style={[styles.unitLabel, unit === 'F' && styles.unitLabelActive]}>°F</Text>
+          </Pressable>
           <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
             <Text style={styles.closeLabel}>✕</Text>
           </Pressable>
@@ -40,7 +60,7 @@ export default function WeatherWidget({ visible, onClose, loading, weather, erro
           <Pressable style={styles.weatherRow} onPress={onRefresh}>
             <Text style={styles.emoji}>{info.emoji}</Text>
             <View style={styles.details}>
-              <Text style={styles.temp}>{Math.round(weather.tempC)}°C</Text>
+              <Text style={styles.temp}>{formatTemp(weather.tempC, unit)}</Text>
               <Text style={styles.label}>{info.label}</Text>
               <Text style={styles.meta}>
                 💧 {weather.humidityPct}% · 💨 {Math.round(weather.windKmh)} km/h
@@ -94,6 +114,28 @@ const styles = StyleSheet.create({
   closeLabel: {
     fontSize: 13,
     color: '#3a3226',
+  },
+  unitToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0ede4',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginRight: 8,
+  },
+  unitLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#8a8578',
+  },
+  unitLabelActive: {
+    color: '#3a3226',
+  },
+  unitSeparator: {
+    fontSize: 12,
+    color: '#c7c2b4',
+    marginHorizontal: 3,
   },
   centerRow: {
     flexDirection: 'row',
