@@ -77,6 +77,35 @@ async function searchPOIs(query: string): Promise<SearchResult[]> {
 }
 
 /**
+ * Coordinates → a display name/address, for src/routing/MapPointPicker's
+ * "pan the map to set a point" flow — Nominatim's own /reverse endpoint,
+ * confirmed working directly against real Belize points (see
+ * geocoding/README.md), including its nearest-feature fallback in areas
+ * with no exact address (e.g. Ambergris Caye resolving to a pier).
+ * Nominatim's reverse response shares enough shape with its forward /search
+ * hits (place_id/display_name/name/lat/lon) to reuse the same NominatimHit
+ * type. Always resolves to exactly one SearchResult — never an array,
+ * since a single point has one "best" address, not a ranked list.
+ */
+export async function reverseGeocode(lat: number, lon: number): Promise<SearchResult> {
+  const url = `${NOMINATIM_URL}/reverse?lat=${lat}&lon=${lon}&format=jsonv2`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Nominatim ${res.status}`);
+  const hit: NominatimHit = await res.json();
+  return {
+    id: `place-${hit.place_id}`,
+    name: hit.name || hit.display_name.split(',')[0],
+    subtitle: hit.display_name,
+    lat,
+    lon, // the point the user actually picked, not hit.lat/hit.lon (Nominatim
+    // can snap to the nearest feature's own coordinate — e.g. a road
+    // centerline point some meters away — which would visibly disagree
+    // with where the on-screen pin was actually sitting)
+    kind: 'place' as const,
+  };
+}
+
+/**
  * Runs both searches in parallel. Either can fail independently (e.g. one
  * service down) without losing the other's results.
  */

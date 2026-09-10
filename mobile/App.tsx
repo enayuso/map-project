@@ -26,14 +26,16 @@ import {
   type CameraRef,
   type MapRef,
   type PressEvent,
+  type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
 import basicStyle from './src/styles/basic.json';
 import hybridStyle from './src/styles/hybrid.json';
 import SearchBox from './src/search/SearchBox';
-import { searchNearby, type SearchResult } from './src/search/api';
+import { reverseGeocode, searchNearby, type SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type RouteResult } from './src/routing/api';
 import RoutePanel from './src/routing/RoutePanel';
 import DirectionsSearchPanel from './src/routing/DirectionsSearchPanel';
+import MapPointPicker from './src/routing/MapPointPicker';
 import NavigationBar from './src/routing/NavigationBar';
 import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
@@ -191,6 +193,67 @@ function App(): React.JSX.Element {
   // shortcut should fill — tracks whichever field the user last focused in
   // DirectionsSearchPanel, defaulting to origin whenever routing mode starts.
   const [activeRouteField, setActiveRouteField] = useState<'origin' | 'destination'>('origin');
+
+  // --- "Select on map" (Naver/Kakao's 지도에서 선택) ---
+  // A pin fixed at the exact screen center; the map pans underneath it
+  // (native gesture, untouched) and whatever's at rest under the pin gets
+  // reverse-geocoded — see src/routing/MapPointPicker.tsx's own header
+  // comment for why this is a distinct interaction from a plain map tap.
+  const [pickingMapPointFor, setPickingMapPointFor] = useState<'origin' | 'destination' | null>(null);
+  const [mapPickPreview, setMapPickPreview] = useState<SearchResult | null>(null);
+  const [mapPickLoading, setMapPickLoading] = useState(false);
+  // Guards against a slow reverse-geocode response from an earlier pan
+  // overwriting the preview for a later one that already resolved —
+  // incremented on every lookup, applied only if still current on return.
+  const pickRequestIdRef = useRef(0);
+  const pickDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const lookUpMapPickCenter = (lat: number, lon: number) => {
+    const requestId = ++pickRequestIdRef.current;
+    setMapPickLoading(true);
+    reverseGeocode(lat, lon)
+      .then(result => {
+        if (pickRequestIdRef.current === requestId) setMapPickPreview(result);
+      })
+      .catch(() => {
+        if (pickRequestIdRef.current === requestId) setMapPickPreview(null);
+      })
+      .finally(() => {
+        if (pickRequestIdRef.current === requestId) setMapPickLoading(false);
+      });
+  };
+
+  const handlePickOnMap = async (field: 'origin' | 'destination') => {
+    setPickingMapPointFor(field);
+    setMapPickPreview(null);
+    const center = await mapRef.current?.getCenter();
+    if (center) lookUpMapPickCenter(center[1], center[0]);
+  };
+
+  const handleCancelMapPick = () => {
+    setPickingMapPointFor(null);
+    setMapPickPreview(null);
+  };
+
+  const handleConfirmMapPick = () => {
+    if (!mapPickPreview || !pickingMapPointFor) return;
+    if (pickingMapPointFor === 'origin') handleSelectOrigin(mapPickPreview);
+    else handleSelectDestination(mapPickPreview);
+    setPickingMapPointFor(null);
+    setMapPickPreview(null);
+  };
+
+  // A short debounce here (same idea, same duration as SearchBox's own
+  // search debounce) coalesces a flurry of small pans into one lookup
+  // rather than firing a reverse-geocode request after every single one.
+  const handleRegionDidChange = (e: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+    setCurrentZoom(e.nativeEvent.zoom);
+    if (!pickingMapPointFor) return;
+    if (pickDebounceRef.current) clearTimeout(pickDebounceRef.current);
+    const [lon, lat] = e.nativeEvent.center;
+    pickDebounceRef.current = setTimeout(() => lookUpMapPickCenter(lat, lon), 300);
+  };
+
   const [costing, setCosting] = useState<Costing>('auto');
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -368,6 +431,11 @@ function App(): React.JSX.Element {
   };
 
   const handleMapPress = async (event: NativeSyntheticEvent<PressEvent>) => {
+    // "Select on map" mode owns the map entirely while active (pan-then-
+    // confirm, not tap-to-set) — a stray tap shouldn't also set a point
+    // behind its back via the plain-tap path below.
+    if (pickingMapPointFor) return;
+
     if (routingActive) {
       const [lon, lat] = event.nativeEvent.lngLat;
       // Fills whichever field is currently focused (see DirectionsSearchPanel's
@@ -436,7 +504,8 @@ function App(): React.JSX.Element {
     setNavigationActive(false);
   };
 
-  const showRoutePanel = routingActive && !navigationActive && (routeLoading || !!route || !!routeError);
+  const showRoutePanel =
+    routingActive && !navigationActive && !pickingMapPointFor && (routeLoading || !!route || !!routeError);
   const remainingTrip = route ? getRemainingTrip(route, currentManeuverIndex) : null;
 
   return (
@@ -446,7 +515,7 @@ function App(): React.JSX.Element {
         style={styles.map}
         mapStyle={(showSatellite ? hybridStyle : basicStyle) as any}
         onPress={handleMapPress}
-        onRegionDidChange={e => setCurrentZoom(e.nativeEvent.zoom)}
+        onRegionDidChange={handleRegionDidChange}
         // Native compass control: appears when the map is rotated away from
         // north, hides itself when facing north again, and resets bearing
         // to north when tapped — all built into MapLibre Native, no custom
@@ -518,7 +587,7 @@ function App(): React.JSX.Element {
         <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
       )}
 
-      {routingActive && !navigationActive && (
+      {routingActive && !navigationActive && !pickingMapPointFor && (
         <DirectionsSearchPanel
           origin={origin}
           destination={destination}
@@ -530,9 +599,20 @@ function App(): React.JSX.Element {
           onClearDestination={handleClearDestination}
           onSwap={handleSwapRoutePoints}
           onUseCurrentLocation={handleUseCurrentLocationAsOrigin}
+          onPickOnMap={handlePickOnMap}
           onClose={toggleRouting}
           recentSearches={recentSearches}
           favorites={favorites}
+        />
+      )}
+
+      {pickingMapPointFor && (
+        <MapPointPicker
+          field={pickingMapPointFor}
+          preview={mapPickPreview}
+          loading={mapPickLoading}
+          onCancel={handleCancelMapPick}
+          onConfirm={handleConfirmMapPick}
         />
       )}
 
@@ -566,25 +646,29 @@ function App(): React.JSX.Element {
        * — this is the explicit-tap alternative both apps also offer
        * alongside gestures, not a replacement for them.
        */}
-      <View style={styles.zoomControl}>
-        <Pressable
-          style={[styles.zoomButton, currentZoom >= MAX_ZOOM && styles.zoomButtonDisabled]}
-          onPress={handleZoomIn}
-          disabled={currentZoom >= MAX_ZOOM}>
-          <Text style={styles.zoomButtonText}>＋</Text>
-        </Pressable>
-        <View style={styles.zoomDivider} />
-        <Pressable
-          style={[styles.zoomButton, currentZoom <= MIN_ZOOM && styles.zoomButtonDisabled]}
-          onPress={handleZoomOut}
-          disabled={currentZoom <= MIN_ZOOM}>
-          <Text style={styles.zoomButtonText}>－</Text>
-        </Pressable>
-      </View>
+      {!pickingMapPointFor && (
+        <View style={styles.zoomControl}>
+          <Pressable
+            style={[styles.zoomButton, currentZoom >= MAX_ZOOM && styles.zoomButtonDisabled]}
+            onPress={handleZoomIn}
+            disabled={currentZoom >= MAX_ZOOM}>
+            <Text style={styles.zoomButtonText}>＋</Text>
+          </Pressable>
+          <View style={styles.zoomDivider} />
+          <Pressable
+            style={[styles.zoomButton, currentZoom <= MIN_ZOOM && styles.zoomButtonDisabled]}
+            onPress={handleZoomOut}
+            disabled={currentZoom <= MIN_ZOOM}>
+            <Text style={styles.zoomButtonText}>－</Text>
+          </Pressable>
+        </View>
+      )}
 
-      <Pressable style={styles.locateButton} onPress={handleLocateMe}>
-        <Text style={styles.locateButtonText}>📍</Text>
-      </Pressable>
+      {!pickingMapPointFor && (
+        <Pressable style={styles.locateButton} onPress={handleLocateMe}>
+          <Text style={styles.locateButtonText}>📍</Text>
+        </Pressable>
+      )}
 
       {/*
        * Basemap toggle: satellite imagery + roads/labels overlaid on top
@@ -593,9 +677,11 @@ function App(): React.JSX.Element {
        * source and scripts/build_satellite_mosaic.sh for where the imagery
        * comes from.
        */}
-      <Pressable style={styles.satelliteButton} onPress={() => setShowSatellite(v => !v)}>
-        <Text style={styles.satelliteButtonText}>{showSatellite ? '🗺️' : '🛰️'}</Text>
-      </Pressable>
+      {!pickingMapPointFor && (
+        <Pressable style={styles.satelliteButton} onPress={() => setShowSatellite(v => !v)}>
+          <Text style={styles.satelliteButtonText}>{showSatellite ? '🗺️' : '🛰️'}</Text>
+        </Pressable>
+      )}
 
       <PlaceCard
         place={routingActive ? null : selectedPlace}

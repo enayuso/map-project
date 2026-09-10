@@ -24,6 +24,7 @@ type Props = {
   onClearDestination: () => void;
   onSwap: () => void;
   onUseCurrentLocation: () => void;
+  onPickOnMap: (field: 'origin' | 'destination') => void;
   onClose: () => void;
   recentSearches: SearchResult[];
   favorites: SearchResult[];
@@ -40,6 +41,7 @@ export default function DirectionsSearchPanel({
   onClearDestination,
   onSwap,
   onUseCurrentLocation,
+  onPickOnMap,
   onClose,
   recentSearches,
   favorites,
@@ -60,7 +62,10 @@ export default function DirectionsSearchPanel({
               onSelect={onSelectOrigin}
               recentSearches={recentSearches}
               favorites={favorites}
-              extraShortcut={{ label: '📍 Use current location', onPress: onUseCurrentLocation }}
+              extraShortcuts={[
+                { label: '📍 Use current location', onPress: onUseCurrentLocation },
+                { label: '🗺️ Select on map', onPress: () => onPickOnMap('origin') },
+              ]}
             />
             {origin && (
               <Pressable style={styles.clearButton} onPress={onClearOrigin} hitSlop={8}>
@@ -83,6 +88,7 @@ export default function DirectionsSearchPanel({
               onSelect={onSelectDestination}
               recentSearches={recentSearches}
               favorites={favorites}
+              extraShortcuts={[{ label: '🗺️ Select on map', onPress: () => onPickOnMap('destination') }]}
             />
             {destination && (
               <Pressable style={styles.clearButton} onPress={onClearDestination} hitSlop={8}>

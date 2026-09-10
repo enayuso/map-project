@@ -42,11 +42,12 @@ type Props = {
    * modalResultsWrapper below) — only relevant when `embedded`, since the
    * default assumes the normal single-search-box layout's own position. */
   dropdownTop?: number;
-  /** An extra, always-first row in the shortcuts section (shown alongside/
+  /** Extra, always-first rows in the shortcuts section (shown alongside/
    * above favorites and recents whenever the query's under 2 characters) —
-   * e.g. "📍 Use current location" for a directions origin field. Selecting
-   * it does not go through onSelect/clearOnSelect at all, just calls this. */
-  extraShortcut?: { label: string; onPress: () => void };
+   * e.g. "📍 Use current location" / "🗺️ Select on map" for a directions
+   * field. Selecting one does not go through onSelect/clearOnSelect at all,
+   * just calls its own onPress. */
+  extraShortcuts?: { label: string; onPress: () => void }[];
   /** Called when the input gains focus, in addition to this component's
    * own dropdown-opening logic — lets a parent track "which field is the
    * user interacting with right now" (DirectionsSearchPanel uses this to
@@ -71,7 +72,7 @@ export default function SearchBox({
   clearOnSelect = true,
   embedded = false,
   dropdownTop = 112,
-  extraShortcut,
+  extraShortcuts,
   onFocus,
   value,
 }: Props) {
@@ -94,7 +95,8 @@ export default function SearchBox({
   // when Kakao/Naver show a "recent searches" / saved-places shortcut list
   // instead of leaving the dropdown empty, so we do the same here.
   const showShortcuts =
-    trimmed.length < 2 && (!!extraShortcut || favorites.length > 0 || recentSearches.length > 0);
+    trimmed.length < 2 &&
+    (!!extraShortcuts?.length || favorites.length > 0 || recentSearches.length > 0);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -131,11 +133,10 @@ export default function SearchBox({
     onSelect(result);
   };
 
-  const handleExtraShortcut = () => {
-    if (!extraShortcut) return;
+  const handleExtraShortcut = (onPress: () => void) => {
     Keyboard.dismiss();
     setShowResults(false);
-    extraShortcut.onPress();
+    onPress();
   };
 
   // Marks the dropdown as opened *now* — dismiss() below won't act until
@@ -225,11 +226,14 @@ export default function SearchBox({
               keyboardShouldPersistTaps="handled">
               {showShortcuts ? (
                 <>
-                  {extraShortcut && (
-                    <Pressable style={styles.resultRow} onPress={handleExtraShortcut}>
-                      <Text style={styles.resultName}>{extraShortcut.label}</Text>
+                  {extraShortcuts?.map(shortcut => (
+                    <Pressable
+                      key={shortcut.label}
+                      style={styles.resultRow}
+                      onPress={() => handleExtraShortcut(shortcut.onPress)}>
+                      <Text style={styles.resultName}>{shortcut.label}</Text>
                     </Pressable>
-                  )}
+                  ))}
                   {favorites.length > 0 && (
                     <>
                       <Text style={styles.sectionHeader}>⭐ Saved places</Text>
