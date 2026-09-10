@@ -116,6 +116,30 @@ Area uses a local equirectangular projection (centered on the polygon's own mean
 
 **Verified**: the area formula was checked against two known synthetic shapes (a ~1km² square and a ~6km² rectangle, both near Belize's own latitude) outside the UI — both came back within 0.5% of the expected area. TypeScript/ESLint clean, app relaunches without crashing.
 
+### Offline maps (2026-09-10)
+
+Tap **⬇️**, pan/zoom to the area you want, name it (optional), tap **Download**. Afterward the app works with no signal in that area — no separate "offline mode" toggle anywhere, MapLibre Native's own `OfflineManager`/`OfflinePack` API (confirmed real by reading the library's source before building anything, not assumed) transparently serves cached tiles whenever a live request fails. Flagged back when Phase 5 was first scoped ("cheap to add... worth doing given Belize's low-connectivity rural/dive-site areas") and never picked up until now.
+
+**One real requirement this forced**: `OfflinePackCreateOptions.mapStyle` needs an actual fetchable URL, not the inline style JSON object `<Map mapStyle={basicStyle}>` normally takes. Rather than standing up a separate static file server for this one thing, Martin now also publishes `styles/*.json` at `/style/<name>` using its own built-in style-source feature (`backend/martin-config.yaml`'s new `styles:` block) — confirmed via Martin's real docs and a live fetch (`/style/basic` returns valid, correctly-self-referencing style JSON) before wiring the mobile side to it.
+
+**Verified**: the style endpoint was checked directly (`curl http://127.0.0.1:3000/style/basic` returns real style JSON whose own tile sources correctly point back at Martin). TypeScript/ESLint clean, app relaunches without crashing. The actual download-and-then-go-offline flow needs your hands — try airplane mode after downloading an area.
+
+### Shareable saved-place lists (2026-09-10)
+
+Tap **📋**, then **+ Create list from favorites** to name a subset of your ★ favorites and get a shareable code (Naver Map's own Dec 2022 upgrade from a flat favorites list to named, shareable folders) — or enter someone else's code under "View someone's list" to see their places. Deliberately additive: the existing flat favorites flow (`src/places/favorites.ts`, the ★ button, SearchBox's shortcuts) is completely unchanged; a list is a named, shareable snapshot layered on top, not a replacement.
+
+Reuses `sharing/`'s backend (new `/lists` endpoints alongside the existing `/shares` ones) rather than a separate service — same short-code access model, but **no expiry**: unlike a live location, a saved list of places isn't inherently ephemeral, and Naver's own version doesn't expire shared lists either. A small local record (`src/lists/localLists.ts`, AsyncStorage) remembers which codes are yours so you can find/re-share/delete them later — the actual content always lives on the server, addressed by code.
+
+**Verified**: the full `/lists` API was tested directly against the running service — create → get (matches) → update (label and places both change) → get-after-update (reflects it) → delete → get-after-delete (404). TypeScript/ESLint clean, app relaunches without crashing.
+
+### Weather (2026-09-10)
+
+Tap **🌤️** for current conditions (temperature, sky, humidity, wind) wherever the map is centered, via [Open-Meteo](https://open-meteo.com/) — free, no API key, commercial-use-permitted, confirmed live before writing any code. This is explicitly polish, not a functional gap (per [docs/research/09-kakao-naver-feature-audit.md](../docs/research/09-kakao-naver-feature-audit.md)) — a manual refresh on tap, not continuous polling, since nothing about this app needs live-updating weather.
+
+**A fix made along the way**: adding this (and the three panels above it) surfaced a real bug — `sharing`/`offline`/`lists`/weather each had their own independent toggle button with no coordination, so opening one didn't hide the others *or* the plain search box, and they could render on top of each other. Fixed with a shared `closeUtilityPanels()` helper (only one of the four open at a time) and an `anyUtilityPanelOpen` check added to the search box/category bar/mode-buttons' own visibility conditions.
+
+**Verified**: the Open-Meteo call was checked directly (real Belize City coordinates, live response) before wiring it in. TypeScript/ESLint clean, app relaunches without crashing.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

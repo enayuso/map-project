@@ -12,6 +12,17 @@ mbtiles:
   sources:
     satellite: /data/satellite/belize_satellite.mbtiles
 
+# Publishes ../styles/*.json (the canonical style files, synced to
+# mobile/src/styles/ for the app's own bundled copy) as fetchable style
+# URLs — needed for Phase 5's offline-maps feature, since MapLibre Native's
+# OfflineManager.createPack() needs an actual URL for its `mapStyle` option,
+# not an inline JS object the way <Map mapStyle={basicStyle}> normally
+# takes it. Confirmed via Martin's own docs: publishes each file under its
+# filename at /style/<name> (e.g. /style/basic, /style/hybrid).
+styles:
+  paths:
+    - /styles
+
 postgres:
   connection_string: postgres://belize:devpass123@postgis:5432/belize
   auto_publish: false

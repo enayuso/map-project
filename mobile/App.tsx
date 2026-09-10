@@ -14,7 +14,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
@@ -26,6 +26,7 @@ import {
   type CameraRef,
   type LngLatBounds,
   type MapRef,
+  type OfflinePackStatus,
   type PressEvent,
   type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
@@ -60,6 +61,14 @@ import {
   toClosedRing,
   type LatLon as MeasureLatLon,
 } from './src/measure/geometry';
+import OfflineMapsPanel, { type PackListItem } from './src/offline/OfflineMapsPanel';
+import { deleteOfflinePack, downloadArea, listOfflinePacks, type PackMetadata } from './src/offline/api';
+import ListsManagerPanel from './src/lists/ListsManagerPanel';
+import ListViewSheet from './src/lists/ListViewSheet';
+import { createList, deleteList, getList, type ListPlace, type SharedList } from './src/lists/api';
+import { addLocalList, getLocalLists, removeLocalList, type LocalList } from './src/lists/localLists';
+import WeatherWidget from './src/weather/WeatherWidget';
+import { fetchCurrentWeather, type CurrentWeather } from './src/weather/api';
 import {
   addFavorite,
   addRecentSearch,
@@ -679,6 +688,214 @@ function App(): React.JSX.Element {
       ? formatDistanceKm(polylineLengthKm(measurePoints))
       : formatAreaKm2(polygonAreaKm2(measurePoints));
 
+  // --- Offline maps (Phase 5) ---
+  // See src/offline/api.ts's header comment for why this is just a thin
+  // download-management UI over MapLibre Native's own built-in offline
+  // pack system, not custom online/offline-switching logic — once a pack
+  // covers the current view, the native SDK serves from it automatically
+  // whenever a live tile request fails.
+  const [offlinePanelVisible, setOfflinePanelVisible] = useState(false);
+  const [offlineLabel, setOfflineLabel] = useState('');
+  const [offlineDownloading, setOfflineDownloading] = useState(false);
+  const [offlineDownloadStatus, setOfflineDownloadStatus] = useState<OfflinePackStatus | null>(null);
+  const [offlineDownloadError, setOfflineDownloadError] = useState<string | null>(null);
+  const [offlinePacks, setOfflinePacks] = useState<PackListItem[]>([]);
+
+  const refreshOfflinePacks = async () => {
+    const packs = await listOfflinePacks();
+    const items = await Promise.all(
+      packs.map(async p => {
+        const status = await p.status();
+        return {
+          id: p.id,
+          metadata: p.metadata as PackMetadata,
+          sizeBytes: status.completedResourceSize,
+        };
+      }),
+    );
+    setOfflinePacks(items);
+  };
+
+  useEffect(() => {
+    if (offlinePanelVisible) refreshOfflinePacks();
+  }, [offlinePanelVisible]);
+
+  const handleDownloadCurrentArea = async () => {
+    const bounds = await mapRef.current?.getBounds();
+    if (!bounds) {
+      setOfflineDownloadError('Could not read the current map view — try again.');
+      return;
+    }
+    const zoom = (await mapRef.current?.getZoom()) ?? INITIAL_ZOOM;
+    // A little wider than the exact current zoom, so a modest zoom-out
+    // still has something to show offline, not just the one exact level.
+    const minZoom = Math.max(MIN_ZOOM, Math.floor(zoom) - 2);
+
+    setOfflineDownloading(true);
+    setOfflineDownloadError(null);
+    setOfflineDownloadStatus(null);
+    try {
+      await downloadArea(
+        bounds,
+        minZoom,
+        showSatellite ? 'hybrid' : 'basic',
+        offlineLabel.trim(),
+        status => {
+          setOfflineDownloadStatus(status);
+          if (status.state === 'complete') {
+            setOfflineDownloading(false);
+            setOfflineLabel('');
+            refreshOfflinePacks();
+          }
+        },
+        message => {
+          setOfflineDownloadError(message);
+          setOfflineDownloading(false);
+        },
+      );
+    } catch (e) {
+      setOfflineDownloadError(e instanceof Error ? e.message : 'Could not start download.');
+      setOfflineDownloading(false);
+    }
+  };
+
+  const handleDeleteOfflinePack = async (id: string) => {
+    await deleteOfflinePack(id);
+    refreshOfflinePacks();
+  };
+
+  // --- Shareable saved-place lists (Naver's Dec 2022 favorites-folder upgrade) ---
+  // Additive on top of the existing flat favorites (favorites.ts) — a list
+  // is a named, shareable subset of your favorites, not a replacement for
+  // the ★ flow. Same short-code backend as location sharing (sharing/),
+  // different resource (src/lists/api.ts).
+  const [listsManagerVisible, setListsManagerVisible] = useState(false);
+  const [localLists, setLocalLists] = useState<LocalList[]>([]);
+  const [listCreating, setListCreating] = useState(false);
+  const [listViewCodeInput, setListViewCodeInput] = useState('');
+  const [listViewingBusy, setListViewingBusy] = useState(false);
+  const [listViewingError, setListViewingError] = useState<string | null>(null);
+  const [viewedList, setViewedList] = useState<SharedList | null>(null);
+  const [listViewSheetVisible, setListViewSheetVisible] = useState(false);
+
+  useEffect(() => {
+    getLocalLists().then(setLocalLists);
+  }, []);
+
+  const handleCreateList = async (label: string, placeIds: string[]) => {
+    const places: ListPlace[] = favorites
+      .filter(f => placeIds.includes(f.id))
+      .map(f => ({ id: f.id, name: f.name, subtitle: f.subtitle, lat: f.lat, lon: f.lon }));
+    setListCreating(true);
+    try {
+      const { code } = await createList(label, places);
+      const updated = await addLocalList({ code, label, placeIds });
+      setLocalLists(updated);
+    } catch {
+      Alert.alert('Could not create the list', 'Please try again.');
+    } finally {
+      setListCreating(false);
+    }
+  };
+
+  const handleDeleteLocalList = async (code: string) => {
+    deleteList(code).catch(() => {}); // best-effort — a local-only removal still un-shares it from this device's point of view even if the network call fails
+    const updated = await removeLocalList(code);
+    setLocalLists(updated);
+  };
+
+  const handleViewListCode = async () => {
+    setListViewingBusy(true);
+    setListViewingError(null);
+    try {
+      const list = await getList(listViewCodeInput);
+      setViewedList(list);
+      setListViewSheetVisible(true);
+      setListsManagerVisible(false);
+    } catch (e) {
+      setListViewingError(e instanceof Error ? e.message : 'Could not find that list.');
+    } finally {
+      setListViewingBusy(false);
+    }
+  };
+
+  const handleSelectListPlace = (place: ListPlace) => {
+    setListViewSheetVisible(false);
+    setSelectedPlace({ ...place, kind: 'poi' });
+    cameraRef.current?.flyTo({ center: [place.lon, place.lat], zoom: 16, duration: 1200 });
+  };
+
+  // --- Weather (low-effort polish, not a functional gap — see
+  // docs/research/09-kakao-naver-feature-audit.md) ---
+  const [weatherVisible, setWeatherVisible] = useState(false);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weather, setWeather] = useState<CurrentWeather | null>(null);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
+
+  const handleRefreshWeather = async () => {
+    setWeatherLoading(true);
+    setWeatherError(null);
+    try {
+      const center = await mapRef.current?.getCenter();
+      if (!center) throw new Error('no map center');
+      const [lon, lat] = center;
+      setWeather(await fetchCurrentWeather(lat, lon));
+    } catch {
+      setWeather(null);
+      setWeatherError('Could not check the weather — try again.');
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  // These four are quick, dismissable utility overlays (unlike Directions/
+  // Meet Up/Measure's full "modes") — sharing this one helper keeps them
+  // from ever rendering on top of each other or the plain search box,
+  // which they'd otherwise do since each has its own independent button.
+  const closeUtilityPanels = () => {
+    setSharingPanelVisible(false);
+    setOfflinePanelVisible(false);
+    setListsManagerVisible(false);
+    setWeatherVisible(false);
+  };
+
+  const toggleSharingPanel = () => {
+    if (sharingPanelVisible) {
+      setSharingPanelVisible(false);
+    } else {
+      closeUtilityPanels();
+      setSharingPanelVisible(true);
+    }
+  };
+
+  const toggleOfflinePanel = () => {
+    if (offlinePanelVisible) {
+      setOfflinePanelVisible(false);
+    } else {
+      closeUtilityPanels();
+      setOfflinePanelVisible(true);
+    }
+  };
+
+  const toggleListsManager = () => {
+    if (listsManagerVisible) {
+      setListsManagerVisible(false);
+    } else {
+      closeUtilityPanels();
+      setListsManagerVisible(true);
+    }
+  };
+
+  const toggleWeather = () => {
+    if (weatherVisible) {
+      setWeatherVisible(false);
+    } else {
+      closeUtilityPanels();
+      setWeatherVisible(true);
+      handleRefreshWeather();
+    }
+  };
+
   const handleSelect = (result: SearchResult) => {
     setSelectedPlace(result);
     recordRecentSearch(result);
@@ -829,6 +1046,14 @@ function App(): React.JSX.Element {
     routingActive && !navigationActive && !pickingMapPointFor && (routeLoading || !!route || !!routeError);
   const remainingTrip = route ? getRemainingTrip(route, currentManeuverIndex) : null;
 
+  // Quick, dismissable utility overlays (sharing/offline/lists/weather) —
+  // unlike Directions/Meet Up/Measure's full "modes," each has its own
+  // independent button, so without this they could otherwise render on
+  // top of the plain search box or each other (closeUtilityPanels above
+  // keeps at most one of these four open at a time; this keeps the
+  // *other* top-of-screen UI out of their way too).
+  const anyUtilityPanelOpen = sharingPanelVisible || offlinePanelVisible || listsManagerVisible || weatherVisible;
+
   return (
     <View style={styles.container}>
       <Map
@@ -958,7 +1183,7 @@ function App(): React.JSX.Element {
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
 
-      {!routingActive && !navigationActive && !meetupActive && !measureActive && (
+      {!routingActive && !navigationActive && !meetupActive && !measureActive && !anyUtilityPanelOpen && (
         <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
       )}
 
@@ -1030,11 +1255,11 @@ function App(): React.JSX.Element {
         />
       )}
 
-      {!routingActive && !navigationActive && !meetupActive && !measureActive && (
+      {!routingActive && !navigationActive && !meetupActive && !measureActive && !anyUtilityPanelOpen && (
         <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
       )}
 
-      {!routingActive && !navigationActive && !meetupActive && !measureActive && (
+      {!routingActive && !navigationActive && !meetupActive && !measureActive && !anyUtilityPanelOpen && (
         <View style={styles.directionsButtonWrap}>
           <Pressable style={styles.directionsButton} onPress={toggleRouting}>
             <Text style={styles.directionsButtonText}>🧭 Directions</Text>
@@ -1104,10 +1329,72 @@ function App(): React.JSX.Element {
       )}
 
       {!pickingMapPointFor && (
-        <Pressable style={styles.sharingButton} onPress={() => setSharingPanelVisible(v => !v)}>
+        <Pressable style={styles.sharingButton} onPress={toggleSharingPanel}>
           <Text style={styles.satelliteButtonText}>📡</Text>
         </Pressable>
       )}
+
+      {!pickingMapPointFor && (
+        <Pressable style={styles.offlineButton} onPress={toggleOfflinePanel}>
+          <Text style={styles.satelliteButtonText}>⬇️</Text>
+        </Pressable>
+      )}
+
+      {!pickingMapPointFor && (
+        <Pressable style={styles.listsButton} onPress={toggleListsManager}>
+          <Text style={styles.satelliteButtonText}>📋</Text>
+        </Pressable>
+      )}
+
+      {!pickingMapPointFor && (
+        <Pressable style={styles.weatherButton} onPress={toggleWeather}>
+          <Text style={styles.satelliteButtonText}>🌤️</Text>
+        </Pressable>
+      )}
+
+      <WeatherWidget
+        visible={weatherVisible}
+        onClose={() => setWeatherVisible(false)}
+        loading={weatherLoading}
+        weather={weather}
+        error={weatherError}
+        onRefresh={handleRefreshWeather}
+      />
+
+      <ListsManagerPanel
+        visible={listsManagerVisible}
+        onClose={() => setListsManagerVisible(false)}
+        favorites={favorites}
+        localLists={localLists}
+        creating={listCreating}
+        onCreateList={handleCreateList}
+        onDeleteList={handleDeleteLocalList}
+        viewCodeInput={listViewCodeInput}
+        onChangeViewCodeInput={setListViewCodeInput}
+        onViewCode={handleViewListCode}
+        viewingBusy={listViewingBusy}
+        viewingError={listViewingError}
+      />
+
+      <ListViewSheet
+        visible={listViewSheetVisible}
+        list={viewedList}
+        onSelect={handleSelectListPlace}
+        onClose={() => setListViewSheetVisible(false)}
+      />
+
+      <OfflineMapsPanel
+        visible={offlinePanelVisible}
+        onClose={() => setOfflinePanelVisible(false)}
+        label={offlineLabel}
+        onChangeLabel={setOfflineLabel}
+        onDownloadCurrentArea={handleDownloadCurrentArea}
+        downloading={offlineDownloading}
+        downloadStatus={offlineDownloadStatus}
+        downloadError={offlineDownloadError}
+        packs={offlinePacks}
+        onDeletePack={handleDeleteOfflinePack}
+      />
 
       <SharingPanel
         visible={sharingPanelVisible}
@@ -1303,6 +1590,54 @@ const styles = StyleSheet.create({
   sharingButton: {
     position: 'absolute',
     bottom: 262,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  offlineButton: {
+    position: 'absolute',
+    bottom: 327,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  listsButton: {
+    position: 'absolute',
+    bottom: 392,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  weatherButton: {
+    position: 'absolute',
+    bottom: 457,
     right: 16,
     width: 48,
     height: 48,
