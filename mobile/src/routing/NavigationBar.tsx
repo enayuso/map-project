@@ -58,7 +58,11 @@ export default function NavigationBar({
             ? 'Trip complete'
             : `🚗 ${Math.round(remainingDurationMin)} min · ${remainingDistanceKm.toFixed(1)} km remaining`}
         </Text>
-        <Pressable style={styles.endButton} onPress={onEnd}>
+        <Pressable
+          style={styles.endButton}
+          onPress={onEnd}
+          accessibilityRole="button"
+          accessibilityLabel="End navigation">
           <Text style={styles.endLabel}>✕ End</Text>
         </Pressable>
       </View>

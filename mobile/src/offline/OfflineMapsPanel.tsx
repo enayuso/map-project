@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import type { OfflinePackStatus } from '@maplibre/maplibre-react-native';
 import type { PackMetadata } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 export type PackListItem = {
   id: string;
@@ -47,63 +48,79 @@ export default function OfflineMapsPanel({
   packs,
   onDeletePack,
 }: Props) {
+  const { colors } = useTheme();
   if (!visible) return null;
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>⬇️ Offline maps</Text>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>⬇️ Offline maps</Text>
+          <Pressable
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.hint}>
+        <Text style={[styles.hint, { color: colors.textSecondary }]}>
           Downloads what's currently on screen — pan/zoom to the area you want first, then
           download it. Works offline afterward, no signal needed.
         </Text>
 
         <View style={styles.downloadRow}>
           <TextInput
-            style={styles.labelInput}
+            style={[styles.labelInput, { borderColor: colors.dividerStrong, color: colors.textPrimary }]}
             placeholder="Name this area (optional)"
-            placeholderTextColor="#8a8578"
+            placeholderTextColor={colors.textSecondary}
             value={label}
             onChangeText={onChangeLabel}
             editable={!downloading}
           />
-          <Pressable style={styles.downloadButton} onPress={onDownloadCurrentArea} disabled={downloading}>
+          <Pressable
+            style={[styles.downloadButton, { backgroundColor: colors.textPrimary }]}
+            onPress={onDownloadCurrentArea}
+            disabled={downloading}
+            accessibilityRole="button"
+            accessibilityLabel="Download">
             {downloading ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+              <ActivityIndicator size="small" color={colors.onTextPrimary} />
             ) : (
-              <Text style={styles.downloadLabel}>Download</Text>
+              <Text style={[styles.downloadLabel, { color: colors.onTextPrimary }]}>Download</Text>
             )}
           </Pressable>
         </View>
 
         {downloading && downloadStatus && (
-          <Text style={styles.progressText}>
+          <Text style={[styles.progressText, { color: colors.accent }]}>
             {downloadStatus.percentage.toFixed(0)}% — {formatBytes(downloadStatus.completedResourceSize)} so far
           </Text>
         )}
-        {downloadError && <Text style={styles.errorText}>{downloadError}</Text>}
+        {downloadError && <Text style={[styles.errorText, { color: colors.danger }]}>{downloadError}</Text>}
 
         {packs.length > 0 && (
           <>
-            <View style={styles.divider} />
-            <Text style={styles.sectionTitle}>Downloaded areas</Text>
+            <View style={[styles.divider, { backgroundColor: colors.dividerStrong }]} />
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Downloaded areas</Text>
             <ScrollView style={styles.list}>
               {packs.map(pack => (
-                <View key={pack.id} style={styles.packRow}>
+                <View key={pack.id} style={[styles.packRow, { borderBottomColor: colors.divider }]}>
                   <View style={styles.packInfo}>
-                    <Text style={styles.packLabel} numberOfLines={1}>
+                    <Text style={[styles.packLabel, { color: colors.textPrimary }]} numberOfLines={1}>
                       {pack.metadata.label || 'Unnamed area'}
                     </Text>
-                    <Text style={styles.packSize}>{formatBytes(pack.sizeBytes)}</Text>
+                    <Text style={[styles.packSize, { color: colors.textSecondary }]}>{formatBytes(pack.sizeBytes)}</Text>
                   </View>
-                  <Pressable style={styles.deleteButton} onPress={() => onDeletePack(pack.id)} hitSlop={8}>
-                    <Text style={styles.deleteLabel}>Delete</Text>
+                  <Pressable
+                    style={[styles.deleteButton, { backgroundColor: colors.divider }]}
+                    onPress={() => onDeletePack(pack.id)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete ${pack.metadata.label || 'Unnamed area'}`}>
+                    <Text style={[styles.deleteLabel, { color: colors.danger }]}>Delete</Text>
                   </Pressable>
                 </View>
               ))}

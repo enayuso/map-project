@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SearchResult } from '../search/api';
 import type { LocalList } from './localLists';
+import { useTheme } from '../theme/ThemeContext';
 
 // Naver Map's own Dec 2022 favorites upgrade: named, shareable folders
 // instead of one flat list — see docs/research/09-kakao-naver-feature-
@@ -41,6 +42,7 @@ export default function ListsManagerPanel({
   viewingBusy,
   viewingError,
 }: Props) {
+  const { colors } = useTheme();
   const [mode, setMode] = useState<Mode>('menu');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -69,68 +71,87 @@ export default function ListsManagerPanel({
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>
             {mode === 'menu' ? '📋 Shared lists' : 'Choose places'}
           </Text>
           <Pressable
-            style={styles.closeButton}
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
             onPress={mode === 'select' ? () => setMode('menu') : onClose}
-            hitSlop={8}>
-            <Text style={styles.closeLabel}>{mode === 'select' ? '‹' : '✕'}</Text>
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={mode === 'select' ? 'Back' : 'Close'}>
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>{mode === 'select' ? '‹' : '✕'}</Text>
           </Pressable>
         </View>
 
         {mode === 'menu' ? (
           <>
             {favorites.length === 0 ? (
-              <Text style={styles.hint}>Save some places (★) first — a list is a named subset of those.</Text>
+              <Text style={[styles.hint, { color: colors.textSecondary }]}>Save some places (★) first — a list is a named subset of those.</Text>
             ) : (
-              <Pressable style={styles.actionButton} onPress={startSelecting} disabled={creating}>
-                <Text style={styles.actionLabel}>+ Create list from favorites</Text>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: colors.textPrimary }]}
+                onPress={startSelecting}
+                disabled={creating}
+                accessibilityRole="button"
+                accessibilityLabel="Create list from favorites">
+                <Text style={[styles.actionLabel, { color: colors.onTextPrimary }]}>+ Create list from favorites</Text>
               </Pressable>
             )}
 
             {localLists.length > 0 && (
               <ScrollView style={styles.list}>
                 {localLists.map(l => (
-                  <View key={l.code} style={styles.listRow}>
+                  <View key={l.code} style={[styles.listRow, { borderBottomColor: colors.divider }]}>
                     <View style={styles.listInfo}>
-                      <Text style={styles.listLabel}>{l.label}</Text>
-                      <Text style={styles.listCode} selectable>
+                      <Text style={[styles.listLabel, { color: colors.textPrimary }]}>{l.label}</Text>
+                      <Text style={[styles.listCode, { color: colors.textSecondary }]} selectable>
                         {l.code}
                       </Text>
                     </View>
-                    <Pressable style={styles.deleteButton} onPress={() => onDeleteList(l.code)} hitSlop={6}>
-                      <Text style={styles.deleteLabel}>Delete</Text>
+                    <Pressable
+                      style={[styles.deleteButton, { backgroundColor: colors.divider }]}
+                      onPress={() => onDeleteList(l.code)}
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete list">
+                      <Text style={[styles.deleteLabel, { color: colors.danger }]}>Delete</Text>
                     </Pressable>
                   </View>
                 ))}
               </ScrollView>
             )}
 
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: colors.dividerStrong }]} />
 
-            <Text style={styles.sectionTitle}>View someone's list</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>View someone's list</Text>
             <View style={styles.viewRow}>
               <TextInput
-                style={styles.codeInput}
+                style={[styles.codeInput, { color: colors.textPrimary, borderColor: colors.dividerStrong }]}
                 placeholder="Enter code"
-                placeholderTextColor="#8a8578"
+                placeholderTextColor={colors.textSecondary}
                 autoCapitalize="characters"
                 autoCorrect={false}
                 value={viewCodeInput}
                 onChangeText={onChangeViewCodeInput}
               />
               <Pressable
-                style={[styles.actionButton, styles.viewButton, !viewCodeInput.trim() && styles.actionButtonDisabled]}
+                style={[
+                  styles.actionButton,
+                  { backgroundColor: colors.textPrimary },
+                  styles.viewButton,
+                  !viewCodeInput.trim() && styles.actionButtonDisabled,
+                ]}
                 onPress={onViewCode}
-                disabled={!viewCodeInput.trim() || viewingBusy}>
-                <Text style={styles.actionLabel}>{viewingBusy ? '…' : 'View'}</Text>
+                disabled={!viewCodeInput.trim() || viewingBusy}
+                accessibilityRole="button"
+                accessibilityLabel="View list">
+                <Text style={[styles.actionLabel, { color: colors.onTextPrimary }]}>{viewingBusy ? '…' : 'View'}</Text>
               </Pressable>
             </View>
-            {viewingError && <Text style={styles.errorText}>{viewingError}</Text>}
+            {viewingError && <Text style={[styles.errorText, { color: colors.danger }]}>{viewingError}</Text>}
           </>
         ) : (
           <>
@@ -138,11 +159,22 @@ export default function ListsManagerPanel({
               {favorites.map(f => {
                 const selected = selectedIds.includes(f.id);
                 return (
-                  <Pressable key={f.id} style={styles.selectRow} onPress={() => toggleSelected(f.id)}>
-                    <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
-                      {selected && <Text style={styles.checkmark}>✓</Text>}
+                  <Pressable
+                    key={f.id}
+                    style={[styles.selectRow, { borderBottomColor: colors.divider }]}
+                    onPress={() => toggleSelected(f.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={f.name}
+                    accessibilityState={{ selected }}>
+                    <View
+                      style={[
+                        styles.checkbox,
+                        selected && styles.checkboxChecked,
+                        selected && { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+                      ]}>
+                      {selected && <Text style={[styles.checkmark, { color: colors.onTextPrimary }]}>✓</Text>}
                     </View>
-                    <Text style={styles.selectLabel} numberOfLines={1}>
+                    <Text style={[styles.selectLabel, { color: colors.textPrimary }]} numberOfLines={1}>
                       {f.name}
                     </Text>
                   </Pressable>
@@ -150,10 +182,16 @@ export default function ListsManagerPanel({
               })}
             </ScrollView>
             <Pressable
-              style={[styles.actionButton, selectedIds.length === 0 && styles.actionButtonDisabled]}
+              style={[
+                styles.actionButton,
+                { backgroundColor: colors.textPrimary },
+                selectedIds.length === 0 && styles.actionButtonDisabled,
+              ]}
               onPress={confirmSelection}
-              disabled={selectedIds.length === 0 || creating}>
-              <Text style={styles.actionLabel}>
+              disabled={selectedIds.length === 0 || creating}
+              accessibilityRole="button"
+              accessibilityLabel="Create list">
+              <Text style={[styles.actionLabel, { color: colors.onTextPrimary }]}>
                 {creating ? 'Creating…' : `Create with ${selectedIds.length} place${selectedIds.length === 1 ? '' : 's'}`}
               </Text>
             </Pressable>

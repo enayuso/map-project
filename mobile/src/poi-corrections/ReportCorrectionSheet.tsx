@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CATEGORIES } from '../categories/categories';
 import type { CorrectionField } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 // Bottom-sheet Modal, same pattern as src/places/PlaceCard.tsx — this
 // opens right after PlaceCard closes (see App.tsx's handleOpenCorrection),
@@ -12,6 +13,15 @@ const FIELD_LABELS: Record<CorrectionField, string> = {
   category: '🏷️ Wrong category',
   closed: '🚫 Permanently closed',
   other: '💬 Something else',
+};
+
+// VoiceOver reads these instead of FIELD_LABELS above — same options, minus
+// the leading emoji glyph.
+const FIELD_ACCESSIBILITY_LABELS: Record<CorrectionField, string> = {
+  name: 'Wrong name',
+  category: 'Wrong category',
+  closed: 'Permanently closed',
+  other: 'Something else',
 };
 
 type Props = {
@@ -31,6 +41,7 @@ export default function ReportCorrectionSheet({
   onClose,
   onSubmit,
 }: Props) {
+  const { colors } = useTheme();
   const [field, setField] = useState<CorrectionField>('name');
   const [nameInput, setNameInput] = useState('');
   const [categoryKey, setCategoryKey] = useState<string | null>(null);
@@ -61,17 +72,21 @@ export default function ReportCorrectionSheet({
     <Modal transparent visible={visible} animationType="slide" onRequestClose={handleClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
           <View style={styles.header}>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>
               Report an issue — {placeName}
             </Text>
-            <Pressable style={styles.closeButton} onPress={handleClose}>
-              <Text style={styles.closeLabel}>✕</Text>
+            <Pressable
+              style={[styles.closeButton, { backgroundColor: colors.divider }]}
+              onPress={handleClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
             </Pressable>
           </View>
 
-          <Text style={styles.hint}>
+          <Text style={[styles.hint, { color: colors.textSecondary }]}>
             Reviewed by a person before it changes anything — not published instantly.
           </Text>
 
@@ -79,9 +94,23 @@ export default function ReportCorrectionSheet({
             {(Object.keys(FIELD_LABELS) as CorrectionField[]).map(f => (
               <Pressable
                 key={f}
-                style={[styles.fieldChip, field === f && styles.fieldChipActive]}
-                onPress={() => setField(f)}>
-                <Text style={[styles.fieldLabel, field === f && styles.fieldLabelActive]}>
+                style={[
+                  styles.fieldChip,
+                  { backgroundColor: colors.divider },
+                  field === f && styles.fieldChipActive,
+                  field === f && { backgroundColor: colors.textPrimary },
+                ]}
+                onPress={() => setField(f)}
+                accessibilityRole="button"
+                accessibilityLabel={FIELD_ACCESSIBILITY_LABELS[f]}
+                accessibilityState={{ selected: field === f }}>
+                <Text
+                  style={[
+                    styles.fieldLabel,
+                    { color: colors.textPrimary },
+                    field === f && styles.fieldLabelActive,
+                    field === f && { color: colors.onTextPrimary },
+                  ]}>
                   {FIELD_LABELS[f]}
                 </Text>
               </Pressable>
@@ -90,9 +119,9 @@ export default function ReportCorrectionSheet({
 
           {field === 'name' && (
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { color: colors.textPrimary, borderColor: colors.dividerStrong }]}
               placeholder="What should it be called?"
-              placeholderTextColor="#8a8578"
+              placeholderTextColor={colors.textSecondary}
               value={nameInput}
               onChangeText={setNameInput}
             />
@@ -103,9 +132,23 @@ export default function ReportCorrectionSheet({
               {CATEGORIES.map(c => (
                 <Pressable
                   key={c.key}
-                  style={[styles.categoryChip, categoryKey === c.key && styles.fieldChipActive]}
-                  onPress={() => setCategoryKey(c.key)}>
-                  <Text style={[styles.fieldLabel, categoryKey === c.key && styles.fieldLabelActive]}>
+                  style={[
+                    styles.categoryChip,
+                    { backgroundColor: colors.divider },
+                    categoryKey === c.key && styles.fieldChipActive,
+                    categoryKey === c.key && { backgroundColor: colors.textPrimary },
+                  ]}
+                  onPress={() => setCategoryKey(c.key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={c.label}
+                  accessibilityState={{ selected: categoryKey === c.key }}>
+                  <Text
+                    style={[
+                      styles.fieldLabel,
+                      { color: colors.textPrimary },
+                      categoryKey === c.key && styles.fieldLabelActive,
+                      categoryKey === c.key && { color: colors.onTextPrimary },
+                    ]}>
                     {c.emoji} {c.label}
                   </Text>
                 </Pressable>
@@ -114,7 +157,7 @@ export default function ReportCorrectionSheet({
           )}
 
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, { color: colors.textPrimary, borderColor: colors.dividerStrong }]}
             placeholder={
               field === 'closed'
                 ? 'Optional: what did you see there instead?'
@@ -122,23 +165,25 @@ export default function ReportCorrectionSheet({
                   ? "What's wrong? (required)"
                   : 'Optional note'
             }
-            placeholderTextColor="#8a8578"
+            placeholderTextColor={colors.textSecondary}
             maxLength={200}
             value={note}
             onChangeText={setNote}
           />
 
           <Pressable
-            style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled]}
+            style={[styles.submitButton, { backgroundColor: colors.textPrimary }, !canSubmit && styles.submitButtonDisabled]}
             onPress={handleSubmit}
-            disabled={!canSubmit || submitting}>
+            disabled={!canSubmit || submitting}
+            accessibilityRole="button"
+            accessibilityLabel="Submit">
             {submitting ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+              <ActivityIndicator size="small" color={colors.onTextPrimary} />
             ) : (
-              <Text style={styles.submitLabel}>Submit</Text>
+              <Text style={[styles.submitLabel, { color: colors.onTextPrimary }]}>Submit</Text>
             )}
           </Pressable>
-          {error && <Text style={styles.errorText}>{error}</Text>}
+          {error && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
         </View>
       </View>
     </Modal>

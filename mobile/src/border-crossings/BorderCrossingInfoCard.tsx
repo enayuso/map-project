@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { BorderCrossing } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 // Bottom-sheet Modal, same pattern as src/places/PlaceCard.tsx and
 // src/hazards/HazardInfoCard.tsx — opens from tapping one of the two
@@ -19,38 +20,54 @@ type Props = {
 };
 
 export default function BorderCrossingInfoCard({ crossing, onClose, onDirections }: Props) {
+  const { colors } = useTheme();
   return (
     <Modal transparent visible={!!crossing} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
         {crossing && (
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: colors.card }]}>
             <View style={styles.header}>
-              <Text style={styles.title}>🛂 {crossing.name}</Text>
-              <Pressable style={styles.closeButton} onPress={onClose}>
-                <Text style={styles.closeLabel}>✕</Text>
+              <Text style={[styles.title, { color: colors.textPrimary }]}>🛂 {crossing.name}</Text>
+              <Pressable
+                style={[styles.closeButton, { backgroundColor: colors.divider }]}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close">
+                <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
               </Pressable>
             </View>
 
             <ScrollView style={styles.body}>
               <Text style={styles.sectionLabel}>Hours</Text>
-              <Text style={styles.sectionText}>{crossing.hours}</Text>
+              <Text style={[styles.sectionText, { color: colors.textPrimary }]}>{crossing.hours}</Text>
 
               <Text style={styles.sectionLabel}>Documents needed</Text>
-              <Text style={styles.sectionText}>{crossing.documentsNeeded}</Text>
+              <Text style={[styles.sectionText, { color: colors.textPrimary }]}>{crossing.documentsNeeded}</Text>
 
               <Text style={styles.sectionLabel}>Fees</Text>
-              <Text style={styles.sectionText}>{crossing.fees}</Text>
+              <Text style={[styles.sectionText, { color: colors.textPrimary }]}>{crossing.fees}</Text>
 
               <Text style={styles.sectionLabel}>⚠️ Common scams</Text>
-              <Text style={styles.sectionText}>{crossing.scamWarnings}</Text>
+              <Text style={[styles.sectionText, { color: colors.textPrimary }]}>{crossing.scamWarnings}</Text>
 
-              <Text style={styles.positionNote}>{POSITION_SOURCE_LABELS[crossing.positionSource]}</Text>
+              <Text style={[styles.positionNote, { color: colors.textSecondary }]}>
+                {POSITION_SOURCE_LABELS[crossing.positionSource]}
+              </Text>
               <Text style={styles.lastVerified}>Last verified {crossing.lastVerifiedAt}</Text>
             </ScrollView>
 
-            <Pressable style={styles.directionsButton} onPress={() => onDirections(crossing)}>
-              <Text style={styles.directionsLabel}>🧭 Directions</Text>
+            <Pressable
+              style={[styles.directionsButton, { backgroundColor: colors.textPrimary }]}
+              onPress={() => onDirections(crossing)}
+              accessibilityRole="button"
+              accessibilityLabel={`Directions to ${crossing.name}`}>
+              <Text style={[styles.directionsLabel, { color: colors.onTextPrimary }]}>🧭 Directions</Text>
             </Pressable>
           </View>
         )}

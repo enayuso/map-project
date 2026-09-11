@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { HAZARD_TYPE_LABELS, type HazardType } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 // Same "quick, dismissable utility overlay" pattern as src/sharing/
 // SharingPanel.tsx — a plain top-anchored card, not a Modal (this app's
@@ -8,6 +9,16 @@ import { HAZARD_TYPE_LABELS, type HazardType } from './api';
 // the map's own gesture area, e.g. RoutePanel's bottom sheet).
 
 const HAZARD_TYPES: HazardType[] = ['flooding', 'washout', 'checkpoint', 'crash', 'hazard'];
+
+// Plain-text (no emoji) equivalents of HAZARD_TYPE_LABELS, for VoiceOver —
+// accessibilityLabel should never speak the literal emoji glyph.
+const HAZARD_TYPE_ACCESSIBLE_LABELS: Record<HazardType, string> = {
+  flooding: 'Flooding',
+  washout: 'Washed-out road',
+  checkpoint: 'Checkpoint',
+  crash: 'Crash',
+  hazard: 'Other hazard',
+};
 
 type Props = {
   visible: boolean;
@@ -26,6 +37,7 @@ export default function ReportHazardSheet({
   error,
   onSubmit,
 }: Props) {
+  const { colors } = useTheme();
   const [type, setType] = useState<HazardType>('hazard');
   const [note, setNote] = useState('');
 
@@ -39,23 +51,40 @@ export default function ReportHazardSheet({
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>🚧 Report a hazard</Text>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>🚧 Report a hazard</Text>
+          <Pressable
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.hint}>Reporting {locationLabel}. Visible to nearby drivers for a few hours.</Text>
+        <Text style={[styles.hint, { color: colors.textSecondary }]}>Reporting {locationLabel}. Visible to nearby drivers for a few hours.</Text>
 
         <View style={styles.typeGrid}>
           {HAZARD_TYPES.map(t => (
             <Pressable
               key={t}
-              style={[styles.typeChip, type === t && styles.typeChipActive]}
-              onPress={() => setType(t)}>
-              <Text style={[styles.typeLabel, type === t && styles.typeLabelActive]}>
+              style={[
+                styles.typeChip,
+                type === t && styles.typeChipActive,
+                { backgroundColor: type === t ? colors.textPrimary : colors.divider },
+              ]}
+              onPress={() => setType(t)}
+              accessibilityRole="button"
+              accessibilityLabel={HAZARD_TYPE_ACCESSIBLE_LABELS[t]}
+              accessibilityState={{ selected: type === t }}>
+              <Text
+                style={[
+                  styles.typeLabel,
+                  type === t && styles.typeLabelActive,
+                  { color: type === t ? colors.onTextPrimary : colors.textPrimary },
+                ]}>
                 {HAZARD_TYPE_LABELS[t]}
               </Text>
             </Pressable>
@@ -63,22 +92,27 @@ export default function ReportHazardSheet({
         </View>
 
         <TextInput
-          style={styles.noteInput}
+          style={[styles.noteInput, { borderColor: colors.dividerStrong, color: colors.textPrimary }]}
           placeholder={'Optional note (e.g. "blocking both lanes")'}
-          placeholderTextColor="#8a8578"
+          placeholderTextColor={colors.textSecondary}
           maxLength={140}
           value={note}
           onChangeText={setNote}
         />
 
-        <Pressable style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
+        <Pressable
+          style={[styles.submitButton, { backgroundColor: colors.danger }]}
+          onPress={handleSubmit}
+          disabled={submitting}
+          accessibilityRole="button"
+          accessibilityLabel="Submit report">
           {submitting ? (
             <ActivityIndicator size="small" color="#ffffff" />
           ) : (
             <Text style={styles.submitLabel}>Submit report</Text>
           )}
         </Pressable>
-        {error && <Text style={styles.errorText}>{error}</Text>}
+        {error && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
       </View>
     </View>
   );

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { PARTICIPANT_COLORS } from './MeetupPanel';
 import type { MeetupCandidate } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -28,32 +29,43 @@ export default function MeetupResultsSheet({
   onSelect,
   onClose,
 }: Props) {
+  const { colors } = useTheme();
+
   return (
     // Modal, not a plain overlay — same touch-swallowing reason as every
     // other mounts/unmounts-based list in this app (mobile/README.md
     // issue 6, src/search/SearchBox.tsx).
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
+        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>Fairest places to meet</Text>
-            <Pressable style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeLabel}>✕</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>Fairest places to meet</Text>
+            <Pressable
+              style={[styles.closeButton, { backgroundColor: colors.divider }]}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
             </Pressable>
           </View>
 
           {loading && (
             <View style={styles.centerRow}>
-              <ActivityIndicator size="small" color="#8a8578" />
-              <Text style={styles.loadingText}>Comparing travel times…</Text>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Comparing travel times…</Text>
             </View>
           )}
 
-          {error && !loading && <Text style={styles.errorText}>{error}</Text>}
+          {error && !loading && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
           {!loading && !error && candidates.length === 0 && (
-            <Text style={styles.empty}>
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>
               Nothing reachable by everyone nearby — try adding people closer together, or a
               wider area.
             </Text>
@@ -62,13 +74,18 @@ export default function MeetupResultsSheet({
           {!loading && candidates.length > 0 && (
             <ScrollView style={styles.list}>
               {candidates.map((c, i) => (
-                <Pressable key={c.place.id} style={styles.row} onPress={() => onSelect(c)}>
+                <Pressable
+                  key={c.place.id}
+                  style={[styles.row, { borderBottomColor: colors.divider }]}
+                  onPress={() => onSelect(c)}
+                  accessibilityRole="button"
+                  accessibilityLabel={c.place.name}>
                   <View style={styles.rowHeader}>
-                    <Text style={styles.name} numberOfLines={1}>
+                    <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
                       {i === 0 ? '🏆 ' : ''}
                       {c.place.name}
                     </Text>
-                    <Text style={styles.subtitle}>{c.place.subtitle}</Text>
+                    <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{c.place.subtitle}</Text>
                   </View>
                   <View style={styles.timesRow}>
                     {c.travelTimesMin.map((t, personIndex) => (

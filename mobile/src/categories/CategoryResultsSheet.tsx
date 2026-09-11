@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { formatDistanceKm, type NearbyResult } from './categories';
+import { useTheme } from '../theme/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -29,45 +30,62 @@ export default function CategoryResultsSheet({
   onSelect,
   onClose,
 }: Props) {
+  const { colors } = useTheme();
   return (
     // Modal, not a plain overlay — this list mounts/unmounts based on
     // state, the exact shape of overlay that facebook/react-native#35612
     // affects (see src/search/SearchBox.tsx and mobile/README.md issue 6).
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
+        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>{categoryLabel} nearby</Text>
-            <Pressable style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeLabel}>✕</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>{categoryLabel} nearby</Text>
+            <Pressable
+              style={[styles.closeButton, { backgroundColor: colors.divider }]}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
             </Pressable>
           </View>
 
           {loading && (
             <View style={styles.centerRow}>
-              <ActivityIndicator size="small" color="#8a8578" />
-              <Text style={styles.loadingText}>Looking nearby…</Text>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Looking nearby…</Text>
             </View>
           )}
 
-          {error && !loading && <Text style={styles.errorText}>{error}</Text>}
+          {error && !loading && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
           {!loading && !error && results.length === 0 && (
-            <Text style={styles.empty}>Nothing found within 8 km — try panning the map first.</Text>
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>
+              Nothing found within 8 km — try panning the map first.
+            </Text>
           )}
 
           {!loading && results.length > 0 && (
             <ScrollView style={styles.list}>
               {results.map(r => (
-                <Pressable key={r.id} style={styles.row} onPress={() => onSelect(r)}>
+                <Pressable
+                  key={r.id}
+                  style={[styles.row, { borderBottomColor: colors.divider }]}
+                  onPress={() => onSelect(r)}
+                  accessibilityRole="button"
+                  accessibilityLabel={r.name}>
                   <View style={styles.rowText}>
-                    <Text style={styles.name}>{r.name}</Text>
-                    <Text style={styles.subtitle} numberOfLines={1}>
+                    <Text style={[styles.name, { color: colors.textPrimary }]}>{r.name}</Text>
+                    <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={1}>
                       {r.subtitle}
                     </Text>
                   </View>
-                  <Text style={styles.distance}>{formatDistanceKm(r.distanceKm)}</Text>
+                  <Text style={[styles.distance, { color: colors.accent }]}>{formatDistanceKm(r.distanceKm)}</Text>
                 </Pressable>
               ))}
             </ScrollView>

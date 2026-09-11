@@ -9,6 +9,7 @@
 import React from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import type { LoggedError } from './logger';
+import { useTheme } from '../theme/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -18,6 +19,7 @@ type Props = {
 };
 
 export default function ErrorLogPanel({ visible, onClose, entries, onClear }: Props) {
+  const { colors } = useTheme();
   if (!visible) return null;
 
   const handleShare = () => {
@@ -33,15 +35,20 @@ export default function ErrorLogPanel({ visible, onClose, entries, onClear }: Pr
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>Error log</Text>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Error log</Text>
+          <Pressable
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.subtitle}>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
           {entries.length === 0
             ? 'Nothing logged this session — good sign.'
             : `${entries.length} error${entries.length === 1 ? '' : 's'} logged on this device, most recent first.`}
@@ -50,12 +57,16 @@ export default function ErrorLogPanel({ visible, onClose, entries, onClear }: Pr
         {entries.length > 0 && (
           <ScrollView style={styles.list} nestedScrollEnabled showsVerticalScrollIndicator={false}>
             {entries.map((e, i) => (
-              <View key={`${e.timestamp}-${i}`} style={[styles.row, i === entries.length - 1 && styles.rowLast]}>
+              <View
+                key={`${e.timestamp}-${i}`}
+                style={[styles.row, { borderBottomColor: colors.divider }, i === entries.length - 1 && styles.rowLast]}>
                 <View style={styles.rowTop}>
-                  <Text style={styles.rowScope}>{e.scope}</Text>
-                  <Text style={styles.rowTime}>{new Date(e.timestamp).toLocaleTimeString()}</Text>
+                  <Text style={[styles.rowScope, { color: colors.danger }]}>{e.scope}</Text>
+                  <Text style={[styles.rowTime, { color: colors.textSecondary }]}>
+                    {new Date(e.timestamp).toLocaleTimeString()}
+                  </Text>
                 </View>
-                <Text style={styles.rowMessage} numberOfLines={2}>
+                <Text style={[styles.rowMessage, { color: colors.textPrimary }]} numberOfLines={2}>
                   {e.message}
                 </Text>
               </View>
@@ -65,11 +76,19 @@ export default function ErrorLogPanel({ visible, onClose, entries, onClear }: Pr
 
         {entries.length > 0 && (
           <View style={styles.actions}>
-            <Pressable style={styles.actionButton} onPress={handleShare}>
-              <Text style={styles.actionButtonText}>Share log</Text>
+            <Pressable
+              style={[styles.actionButton, { backgroundColor: colors.textPrimary }]}
+              onPress={handleShare}
+              accessibilityRole="button"
+              accessibilityLabel="Share error log">
+              <Text style={[styles.actionButtonText, { color: colors.onTextPrimary }]}>Share log</Text>
             </Pressable>
-            <Pressable style={[styles.actionButton, styles.clearButton]} onPress={onClear}>
-              <Text style={[styles.actionButtonText, styles.clearButtonText]}>Clear</Text>
+            <Pressable
+              style={[styles.actionButton, { backgroundColor: colors.divider }]}
+              onPress={onClear}
+              accessibilityRole="button"
+              accessibilityLabel="Clear error log">
+              <Text style={[styles.actionButtonText, { color: colors.textPrimary }]}>Clear</Text>
             </Pressable>
           </View>
         )}
@@ -171,11 +190,5 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
     fontSize: 13,
-  },
-  clearButton: {
-    backgroundColor: '#f0ede4',
-  },
-  clearButtonText: {
-    color: '#3a3226',
   },
 });

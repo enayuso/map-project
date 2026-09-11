@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import SearchBox from '../search/SearchBox';
 import type { SearchResult } from '../search/api';
+import { useTheme } from '../theme/ThemeContext';
 
 // The explicit "departure / destination" card Kakao/Naver use for
 // directions, replacing this app's earlier flow of implicitly reusing the
@@ -56,9 +57,11 @@ export default function DirectionsSearchPanel({
   recentSearches,
   favorites,
 }: Props) {
+  const { colors } = useTheme();
+
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.fieldsColumn}>
           <View style={[styles.fieldRow, activeField === 'origin' && styles.fieldRowActive]}>
             <View style={[styles.dot, styles.originDot]} />
@@ -78,13 +81,18 @@ export default function DirectionsSearchPanel({
               ]}
             />
             {origin && (
-              <Pressable style={styles.clearButton} onPress={onClearOrigin} hitSlop={8}>
-                <Text style={styles.clearLabel}>✕</Text>
+              <Pressable
+                style={styles.clearButton}
+                onPress={onClearOrigin}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Clear starting point">
+                <Text style={[styles.clearLabel, { color: colors.textSecondary }]}>✕</Text>
               </Pressable>
             )}
           </View>
 
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.dividerStrong }]} />
 
           <View style={[styles.fieldRow, activeField === 'destination' && styles.fieldRowActive]}>
             <View style={[styles.dot, styles.destinationDot]} />
@@ -101,25 +109,40 @@ export default function DirectionsSearchPanel({
               extraShortcuts={[{ label: '🗺️ Select on map', onPress: () => onPickOnMap('destination') }]}
             />
             {destination && (
-              <Pressable style={styles.clearButton} onPress={onClearDestination} hitSlop={8}>
-                <Text style={styles.clearLabel}>✕</Text>
+              <Pressable
+                style={styles.clearButton}
+                onPress={onClearDestination}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Clear destination">
+                <Text style={[styles.clearLabel, { color: colors.textSecondary }]}>✕</Text>
               </Pressable>
             )}
           </View>
         </View>
 
-        <Pressable style={styles.swapButton} onPress={onSwap} hitSlop={8}>
-          <Text style={styles.swapLabel}>⇅</Text>
+        <Pressable
+          style={[styles.swapButton, { backgroundColor: colors.divider }]}
+          onPress={onSwap}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Swap origin and destination">
+          <Text style={[styles.swapLabel, { color: colors.textPrimary }]}>⇅</Text>
         </Pressable>
       </View>
 
-      <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-        <Text style={styles.closeLabel}>✕ Cancel</Text>
+      <Pressable
+        style={styles.closeButton}
+        onPress={onClose}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Cancel">
+        <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕ Cancel</Text>
       </Pressable>
 
       {/* Both fields' dropdowns share this hint about the other input method — shown only while genuinely useful, i.e. something's still unset. */}
       {(!origin || !destination) && (
-        <Text style={styles.hint}>You can also tap a point directly on the map</Text>
+        <Text style={[styles.hint, { color: colors.textPrimary }]}>You can also tap a point directly on the map</Text>
       )}
     </View>
   );

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
 
 const OSM_COPYRIGHT_URL = 'https://www.openstreetmap.org/copyright';
 const COPERNICUS_URL = 'https://www.copernicus.eu/en';
@@ -29,14 +30,23 @@ type Props = {
  * directly, not opaque native HTML parsing.
  */
 export default function AttributionFooter({ showSatelliteCredit }: Props) {
+  const { colors } = useTheme();
   return (
     <View style={styles.container} pointerEvents="box-none">
-      <Pressable onPress={() => Linking.openURL(OSM_COPYRIGHT_URL)}>
-        <Text style={styles.text}>© OpenStreetMap contributors</Text>
+      <Pressable
+        onPress={() => Linking.openURL(OSM_COPYRIGHT_URL)}
+        accessibilityRole="button"
+        accessibilityLabel="Open OpenStreetMap copyright page">
+        <Text style={[styles.text, { color: colors.textPrimary }]}>© OpenStreetMap contributors</Text>
       </Pressable>
       {showSatelliteCredit && (
-        <Pressable onPress={() => Linking.openURL(COPERNICUS_URL)}>
-          <Text style={styles.text}>Contains modified Copernicus Sentinel data 2025-2026</Text>
+        <Pressable
+          onPress={() => Linking.openURL(COPERNICUS_URL)}
+          accessibilityRole="button"
+          accessibilityLabel="Open Copernicus Sentinel data information page">
+          <Text style={[styles.text, { color: colors.textPrimary }]}>
+            Contains modified Copernicus Sentinel data 2025-2026
+          </Text>
         </Pressable>
       )}
     </View>

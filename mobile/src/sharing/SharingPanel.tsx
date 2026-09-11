@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
 
 // Naver/Kakao both have live location sharing (Kakao's own "친구위치" just
 // had its time limit removed entirely, Nov 2025 — see docs/research/
@@ -40,81 +41,107 @@ export default function SharingPanel({
   onStartViewing,
   onStopViewing,
 }: Props) {
+  const { colors } = useTheme();
   const [codeInput, setCodeInput] = useState('');
 
   if (!visible) return null;
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>📡 Location sharing</Text>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>📡 Location sharing</Text>
+          <Pressable
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Share my location</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Share my location</Text>
           {myCode ? (
             <>
-              <Text style={styles.hint}>Give this code to whoever should see you:</Text>
-              <Text style={styles.code} selectable>
+              <Text style={[styles.hint, { color: colors.textSecondary }]}>Give this code to whoever should see you:</Text>
+              <Text style={[styles.code, { color: colors.textPrimary }]} selectable>
                 {myCode}
               </Text>
-              <Pressable style={styles.stopButton} onPress={onStopSharing}>
-                <Text style={styles.stopLabel}>Stop sharing</Text>
+              <Pressable
+                style={[styles.stopButton, { backgroundColor: colors.divider }]}
+                onPress={onStopSharing}
+                accessibilityRole="button"
+                accessibilityLabel="Stop sharing">
+                <Text style={[styles.stopLabel, { color: colors.danger }]}>Stop sharing</Text>
               </Pressable>
             </>
           ) : (
             <>
-              <Pressable style={styles.actionButton} onPress={onStartSharing} disabled={sharingBusy}>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: colors.textPrimary }]}
+                onPress={onStartSharing}
+                disabled={sharingBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Start sharing">
                 {sharingBusy ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
+                  <ActivityIndicator size="small" color={colors.onTextPrimary} />
                 ) : (
-                  <Text style={styles.actionLabel}>Start sharing</Text>
+                  <Text style={[styles.actionLabel, { color: colors.onTextPrimary }]}>Start sharing</Text>
                 )}
               </Pressable>
-              {sharingError && <Text style={styles.errorText}>{sharingError}</Text>}
+              {sharingError && <Text style={[styles.errorText, { color: colors.danger }]}>{sharingError}</Text>}
             </>
           )}
         </View>
 
-        <View style={styles.divider} />
+        <View style={[styles.divider, { backgroundColor: colors.dividerStrong }]} />
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>View someone's location</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>View someone's location</Text>
           {viewedLabel ? (
             <>
-              <Text style={styles.hint}>Now watching: {viewedLabel}</Text>
-              <Pressable style={styles.stopButton} onPress={onStopViewing}>
-                <Text style={styles.stopLabel}>Stop viewing</Text>
+              <Text style={[styles.hint, { color: colors.textSecondary }]}>Now watching: {viewedLabel}</Text>
+              <Pressable
+                style={[styles.stopButton, { backgroundColor: colors.divider }]}
+                onPress={onStopViewing}
+                accessibilityRole="button"
+                accessibilityLabel="Stop viewing">
+                <Text style={[styles.stopLabel, { color: colors.danger }]}>Stop viewing</Text>
               </Pressable>
             </>
           ) : (
             <>
               <View style={styles.codeInputRow}>
                 <TextInput
-                  style={styles.codeInput}
+                  style={[styles.codeInput, { color: colors.textPrimary, borderColor: colors.dividerStrong }]}
                   placeholder="Enter code"
-                  placeholderTextColor="#8a8578"
+                  placeholderTextColor={colors.textSecondary}
                   autoCapitalize="characters"
                   autoCorrect={false}
                   value={codeInput}
                   onChangeText={setCodeInput}
                 />
                 <Pressable
-                  style={[styles.actionButton, styles.viewButton, !codeInput.trim() && styles.actionButtonDisabled]}
+                  style={[
+                    styles.actionButton,
+                    { backgroundColor: colors.textPrimary },
+                    styles.viewButton,
+                    !codeInput.trim() && styles.actionButtonDisabled,
+                  ]}
                   onPress={() => onStartViewing(codeInput)}
-                  disabled={!codeInput.trim() || viewingBusy}>
+                  disabled={!codeInput.trim() || viewingBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Start viewing location">
                   {viewingBusy ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
+                    <ActivityIndicator size="small" color={colors.onTextPrimary} />
                   ) : (
-                    <Text style={styles.actionLabel}>View</Text>
+                    <Text style={[styles.actionLabel, { color: colors.onTextPrimary }]}>View</Text>
                   )}
                 </Pressable>
               </View>
-              {viewingError && <Text style={styles.errorText}>{viewingError}</Text>}
+              {viewingError && <Text style={[styles.errorText, { color: colors.danger }]}>{viewingError}</Text>}
             </>
           )}
         </View>

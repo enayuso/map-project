@@ -31,6 +31,7 @@ import {
   type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
 import basicStyle from './src/styles/basic.json';
+import basicDarkStyle from './src/styles/basic-dark.json';
 import hybridStyle from './src/styles/hybrid.json';
 import SearchBox from './src/search/SearchBox';
 import { reverseGeocode, searchNearby, type SearchResult } from './src/search/api';
@@ -106,6 +107,7 @@ import { weatherCodeInfo } from './src/weather/weatherCodes';
 import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
 import ErrorLogPanel from './src/errors/ErrorLogPanel';
 import { clearErrorLog, getErrorLog, logError, type LoggedError } from './src/errors/logger';
+import { useTheme } from './src/theme/ThemeContext';
 import { formatTemp } from './src/weather/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
@@ -198,6 +200,7 @@ function placeFromFeature(feature: GeoJSON.Feature): SearchResult | null {
 }
 
 function App(): React.JSX.Element {
+  const { colors, scheme, preference, cyclePreference } = useTheme();
   const cameraRef = useRef<CameraRef>(null);
   const mapRef = useRef<MapRef>(null);
   const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
@@ -1540,7 +1543,10 @@ function App(): React.JSX.Element {
     moreMenuVisible ||
     errorLogVisible;
 
+  const appearanceLabel = preference === 'system' ? 'System' : preference === 'light' ? 'Light' : 'Dark';
+
   const moreMenuItems: MoreMenuItem[] = [
+    { key: 'appearance', icon: '🌓', label: `Appearance: ${appearanceLabel}`, onPress: cyclePreference },
     { key: 'weather', icon: '🌤️', label: 'Weather', onPress: toggleWeather },
     { key: 'lists', icon: '📋', label: 'Saved lists', onPress: toggleListsManager },
     { key: 'offline', icon: '⬇️', label: 'Offline maps', onPress: toggleOfflinePanel },
@@ -1568,7 +1574,13 @@ function App(): React.JSX.Element {
       <Map
         ref={mapRef}
         style={styles.map}
-        mapStyle={(showSatellite ? hybridStyle : basicStyle) as any}
+        mapStyle={
+          // Satellite/hybrid has no dark variant — real satellite
+          // photography doesn't change with system dark mode in any map
+          // app (Google/Apple/Naver's satellite views don't either), so
+          // only the vector "basic" style swaps for scheme.
+          (showSatellite ? hybridStyle : scheme === 'dark' ? basicDarkStyle : basicStyle) as any
+        }
         onPress={handleMapPress}
         onRegionDidChange={handleRegionDidChange}
         // Native compass control: appears when the map is rotated away from
@@ -1816,14 +1828,26 @@ function App(): React.JSX.Element {
 
       {!routingActive && !navigationActive && !meetupActive && !measureActive && !anyUtilityPanelOpen && (
         <View style={styles.directionsButtonWrap}>
-          <Pressable style={styles.directionsButton} onPress={toggleRouting}>
-            <Text style={styles.directionsButtonText}>🧭 Directions</Text>
+          <Pressable
+            style={[styles.directionsButton, { backgroundColor: colors.textPrimary }]}
+            onPress={toggleRouting}
+            accessibilityRole="button"
+            accessibilityLabel="Directions">
+            <Text style={[styles.directionsButtonText, { color: colors.onTextPrimary }]}>🧭 Directions</Text>
           </Pressable>
-          <Pressable style={styles.meetupButton} onPress={toggleMeetup}>
-            <Text style={styles.directionsButtonText}>🤝 Meet Up</Text>
+          <Pressable
+            style={[styles.meetupButton, { backgroundColor: colors.textPrimary }]}
+            onPress={toggleMeetup}
+            accessibilityRole="button"
+            accessibilityLabel="Meet Up">
+            <Text style={[styles.directionsButtonText, { color: colors.onTextPrimary }]}>🤝 Meet Up</Text>
           </Pressable>
-          <Pressable style={styles.meetupButton} onPress={toggleMeasure}>
-            <Text style={styles.directionsButtonText}>📏 Measure</Text>
+          <Pressable
+            style={[styles.meetupButton, { backgroundColor: colors.textPrimary }]}
+            onPress={toggleMeasure}
+            accessibilityRole="button"
+            accessibilityLabel="Measure">
+            <Text style={[styles.directionsButtonText, { color: colors.onTextPrimary }]}>📏 Measure</Text>
           </Pressable>
         </View>
       )}
@@ -1847,25 +1871,33 @@ function App(): React.JSX.Element {
        * alongside gestures, not a replacement for them.
        */}
       {!pickingMapPointFor && (
-        <View style={styles.zoomControl}>
+        <View style={[styles.zoomControl, { backgroundColor: colors.card }]}>
           <Pressable
             style={[styles.zoomButton, currentZoom >= MAX_ZOOM && styles.zoomButtonDisabled]}
             onPress={handleZoomIn}
-            disabled={currentZoom >= MAX_ZOOM}>
-            <Text style={styles.zoomButtonText}>＋</Text>
+            disabled={currentZoom >= MAX_ZOOM}
+            accessibilityRole="button"
+            accessibilityLabel="Zoom in">
+            <Text style={[styles.zoomButtonText, { color: colors.textPrimary }]}>＋</Text>
           </Pressable>
-          <View style={styles.zoomDivider} />
+          <View style={[styles.zoomDivider, { backgroundColor: colors.divider }]} />
           <Pressable
             style={[styles.zoomButton, currentZoom <= MIN_ZOOM && styles.zoomButtonDisabled]}
             onPress={handleZoomOut}
-            disabled={currentZoom <= MIN_ZOOM}>
-            <Text style={styles.zoomButtonText}>－</Text>
+            disabled={currentZoom <= MIN_ZOOM}
+            accessibilityRole="button"
+            accessibilityLabel="Zoom out">
+            <Text style={[styles.zoomButtonText, { color: colors.textPrimary }]}>－</Text>
           </Pressable>
         </View>
       )}
 
       {!pickingMapPointFor && (
-        <Pressable style={styles.locateButton} onPress={handleLocateMe}>
+        <Pressable
+          style={[styles.locateButton, { backgroundColor: colors.card }]}
+          onPress={handleLocateMe}
+          accessibilityRole="button"
+          accessibilityLabel="Show my location">
           <Text style={styles.locateButtonText}>📍</Text>
         </Pressable>
       )}
@@ -1878,7 +1910,12 @@ function App(): React.JSX.Element {
        * comes from.
        */}
       {!pickingMapPointFor && (
-        <Pressable style={styles.satelliteButton} onPress={() => setShowSatellite(v => !v)}>
+        <Pressable
+          style={[styles.satelliteButton, { backgroundColor: colors.card }]}
+          onPress={() => setShowSatellite(v => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={showSatellite ? 'Switch to map view' : 'Switch to satellite view'}
+          accessibilityState={{ selected: showSatellite }}>
           <Text style={styles.satelliteButtonText}>{showSatellite ? '🗺️' : '🛰️'}</Text>
         </Pressable>
       )}
@@ -1893,8 +1930,15 @@ function App(): React.JSX.Element {
        */}
       {!pickingMapPointFor && (
         <Pressable
-          style={[styles.moreButton, (hazardsVisible || diveSitesActive) && styles.moreButtonActive]}
-          onPress={toggleMoreMenu}>
+          style={[
+            styles.moreButton,
+            { backgroundColor: colors.card },
+            (hazardsVisible || diveSitesActive) && styles.moreButtonActive,
+          ]}
+          onPress={toggleMoreMenu}
+          accessibilityRole="button"
+          accessibilityLabel="More"
+          accessibilityState={{ selected: hazardsVisible || diveSitesActive }}>
           <Text style={styles.satelliteButtonText}>☰</Text>
         </Pressable>
       )}
@@ -1906,7 +1950,11 @@ function App(): React.JSX.Element {
         !meetupActive &&
         !measureActive && (
           <View style={styles.reportHazardPillWrap} pointerEvents="box-none">
-            <Pressable style={styles.reportHazardPill} onPress={openHazardReport}>
+            <Pressable
+              style={styles.reportHazardPill}
+              onPress={openHazardReport}
+              accessibilityRole="button"
+              accessibilityLabel="Report a road hazard">
               <Text style={styles.reportHazardPillLabel}>🚧 Report hazard</Text>
             </Pressable>
           </View>

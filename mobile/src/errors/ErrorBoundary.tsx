@@ -49,7 +49,11 @@ export default class ErrorBoundary extends React.Component<Props, State> {
             The app hit an unexpected error. Your saved places and settings are safe — try again,
             or close and reopen the app if this keeps happening.
           </Text>
-          <Pressable style={styles.button} onPress={this.handleReset}>
+          <Pressable
+            style={styles.button}
+            onPress={this.handleReset}
+            accessibilityRole="button"
+            accessibilityLabel="Try again">
             <Text style={styles.buttonText}>Try again</Text>
           </Pressable>
         </View>

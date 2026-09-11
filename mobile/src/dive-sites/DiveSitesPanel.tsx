@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { DIFFICULTY_LABELS, formatDepth, POSITION_SOURCE_LABELS, type DiveSite } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 // Bottom-sheet Modal, same pattern as src/ferries/FerryPanel.tsx. Every
 // card is upfront about how confident its position is (see api.ts's
@@ -17,30 +18,40 @@ type Props = {
 };
 
 export default function DiveSitesPanel({ visible, loading, error, sites, onClose, onDirections }: Props) {
+  const { colors } = useTheme();
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
+        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>🤿 Dive sites</Text>
-            <Pressable style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeLabel}>✕</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>🤿 Dive sites</Text>
+            <Pressable
+              style={[styles.closeButton, { backgroundColor: colors.divider }]}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
             </Pressable>
           </View>
 
-          <Text style={styles.hint}>
+          <Text style={[styles.hint, { color: colors.textSecondary }]}>
             Curated from PADI, Belize Audubon Society, and reserve boundary data — not a live or
             official database. Positions vary in precision; see each site's own note.
           </Text>
 
           {loading && (
             <View style={styles.centerRow}>
-              <ActivityIndicator size="small" color="#8a8578" />
-              <Text style={styles.loadingText}>Loading dive sites…</Text>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading dive sites…</Text>
             </View>
           )}
-          {error && !loading && <Text style={styles.errorText}>{error}</Text>}
+          {error && !loading && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
           {!loading && !error && (
             <ScrollView style={styles.list}>
@@ -49,18 +60,26 @@ export default function DiveSitesPanel({ visible, loading, error, sites, onClose
                 return (
                   <View key={site.id} style={styles.card}>
                     <View style={styles.cardHeader}>
-                      <Text style={styles.siteName}>{site.name}</Text>
+                      <Text style={[styles.siteName, { color: colors.textPrimary }]}>{site.name}</Text>
                       {site.difficulty && (
-                        <Text style={styles.difficultyBadge}>{DIFFICULTY_LABELS[site.difficulty]}</Text>
+                        <Text style={[styles.difficultyBadge, { color: colors.textPrimary }]}>
+                          {DIFFICULTY_LABELS[site.difficulty]}
+                        </Text>
                       )}
                     </View>
                     <Text style={styles.reserve}>{site.reserve}</Text>
-                    {depth && <Text style={styles.depth}>Depth: {depth}</Text>}
-                    <Text style={styles.description}>{site.description}</Text>
-                    <Text style={styles.positionNote}>{POSITION_SOURCE_LABELS[site.positionSource]}</Text>
+                    {depth && <Text style={[styles.depth, { color: colors.textPrimary }]}>Depth: {depth}</Text>}
+                    <Text style={[styles.description, { color: colors.textPrimary }]}>{site.description}</Text>
+                    <Text style={[styles.positionNote, { color: colors.textSecondary }]}>
+                      {POSITION_SOURCE_LABELS[site.positionSource]}
+                    </Text>
                     <View style={styles.actionRow}>
-                      <Pressable style={styles.directionsButton} onPress={() => onDirections(site)}>
-                        <Text style={styles.directionsLabel}>🧭 Directions</Text>
+                      <Pressable
+                        style={[styles.directionsButton, { backgroundColor: colors.textPrimary }]}
+                        onPress={() => onDirections(site)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Directions to ${site.name}`}>
+                        <Text style={[styles.directionsLabel, { color: colors.onTextPrimary }]}>🧭 Directions</Text>
                       </Pressable>
                       <Text style={styles.lastVerified}>Verified {site.lastVerifiedAt}</Text>
                     </View>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { FerryRoute } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 // Bottom-sheet Modal, same pattern as src/lists/ListViewSheet.tsx. Content
 // is deliberately upfront about being curated, not live — see api.ts's
@@ -17,39 +18,49 @@ type Props = {
 };
 
 export default function FerryPanel({ visible, loading, error, routes, onClose }: Props) {
+  const { colors } = useTheme();
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
+        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>⛴️ Water taxis &amp; ferries</Text>
-            <Pressable style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeLabel}>✕</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>⛴️ Water taxis &amp; ferries</Text>
+            <Pressable
+              style={[styles.closeButton, { backgroundColor: colors.divider }]}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
             </Pressable>
           </View>
 
-          <Text style={styles.hint}>
+          <Text style={[styles.hint, { color: colors.textSecondary }]}>
             Curated from operators' own published schedules, not a live feed — always confirm times
             directly before traveling.
           </Text>
 
           {loading && (
             <View style={styles.centerRow}>
-              <ActivityIndicator size="small" color="#8a8578" />
-              <Text style={styles.loadingText}>Loading routes…</Text>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading routes…</Text>
             </View>
           )}
-          {error && !loading && <Text style={styles.errorText}>{error}</Text>}
+          {error && !loading && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
           {!loading && !error && (
             <ScrollView style={styles.list}>
               {routes.map(route => (
                 <View key={route.id} style={styles.card}>
                   <View style={styles.cardHeader}>
-                    <Text style={styles.routeName}>{route.name}</Text>
+                    <Text style={[styles.routeName, { color: colors.textPrimary }]}>{route.name}</Text>
                     {route.isInternational && (
-                      <View style={styles.intlBadge}>
+                      <View style={[styles.intlBadge, { backgroundColor: colors.accent }]}>
                         <Text style={styles.intlBadgeText}>International</Text>
                       </View>
                     )}
@@ -60,27 +71,31 @@ export default function FerryPanel({ visible, loading, error, routes, onClose }:
                       key={op.name}
                       style={styles.operatorRow}
                       onPress={() => op.url && Linking.openURL(op.url)}
-                      disabled={!op.url}>
-                      <Text style={styles.operatorName}>
+                      disabled={!op.url}
+                      accessibilityRole="button"
+                      accessibilityLabel={op.url ? `Open ${op.name} website` : op.name}>
+                      <Text style={[styles.operatorName, { color: colors.accent }]}>
                         {op.name}
                         {op.url ? '  ↗' : ''}
                       </Text>
-                      {op.phone && <Text style={styles.operatorPhone}>{op.phone}</Text>}
-                      {op.contactNote && <Text style={styles.operatorNote}>{op.contactNote}</Text>}
+                      {op.phone && <Text style={[styles.operatorPhone, { color: colors.textSecondary }]}>{op.phone}</Text>}
+                      {op.contactNote && (
+                        <Text style={[styles.operatorNote, { color: colors.textSecondary }]}>{op.contactNote}</Text>
+                      )}
                     </Pressable>
                   ))}
 
                   {route.sampleDepartures.length > 0 && (
                     <View style={styles.departuresBlock}>
                       {route.sampleDepartures.map(d => (
-                        <Text key={d.from} style={styles.departureLine}>
+                        <Text key={d.from} style={[styles.departureLine, { color: colors.textPrimary }]}>
                           From {d.from}: {d.times.join(', ')}
                         </Text>
                       ))}
                     </View>
                   )}
 
-                  <Text style={styles.routeNotes}>{route.notes}</Text>
+                  <Text style={[styles.routeNotes, { color: colors.textSecondary }]}>{route.notes}</Text>
                   <Text style={styles.lastVerified}>Last verified {route.lastVerifiedAt}</Text>
                 </View>
               ))}

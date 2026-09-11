@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
 
 export type MeasureMode = 'distance' | 'area';
 
@@ -22,29 +23,65 @@ export default function MeasureBar({
   onClear,
   onClose,
 }: Props) {
+  const { colors } = useTheme();
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.topRow}>
-          <View style={styles.modeToggle}>
+          <View style={[styles.modeToggle, { backgroundColor: colors.divider }]}>
             <Pressable
-              style={[styles.modeButton, mode === 'distance' && styles.modeButtonActive]}
-              onPress={() => onChangeMode('distance')}>
-              <Text style={[styles.modeLabel, mode === 'distance' && styles.modeLabelActive]}>📏 Distance</Text>
+              style={[
+                styles.modeButton,
+                mode === 'distance' && styles.modeButtonActive,
+                mode === 'distance' && { backgroundColor: colors.textPrimary },
+              ]}
+              onPress={() => onChangeMode('distance')}
+              accessibilityRole="button"
+              accessibilityLabel="Distance"
+              accessibilityState={{ selected: mode === 'distance' }}>
+              <Text
+                style={[
+                  styles.modeLabel,
+                  { color: colors.textPrimary },
+                  mode === 'distance' && styles.modeLabelActive,
+                  mode === 'distance' && { color: colors.onTextPrimary },
+                ]}>
+                📏 Distance
+              </Text>
             </Pressable>
             <Pressable
-              style={[styles.modeButton, mode === 'area' && styles.modeButtonActive]}
-              onPress={() => onChangeMode('area')}>
-              <Text style={[styles.modeLabel, mode === 'area' && styles.modeLabelActive]}>⬜ Area</Text>
+              style={[
+                styles.modeButton,
+                mode === 'area' && styles.modeButtonActive,
+                mode === 'area' && { backgroundColor: colors.textPrimary },
+              ]}
+              onPress={() => onChangeMode('area')}
+              accessibilityRole="button"
+              accessibilityLabel="Area"
+              accessibilityState={{ selected: mode === 'area' }}>
+              <Text
+                style={[
+                  styles.modeLabel,
+                  { color: colors.textPrimary },
+                  mode === 'area' && styles.modeLabelActive,
+                  mode === 'area' && { color: colors.onTextPrimary },
+                ]}>
+                ⬜ Area
+              </Text>
             </Pressable>
           </View>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕ Done</Text>
+          <Pressable
+            style={styles.closeButton}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Done">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕ Done</Text>
           </Pressable>
         </View>
 
         <View style={styles.bottomRow}>
-          <Text style={styles.total}>
+          <Text style={[styles.total, { color: colors.accent }]}>
             {pointCount === 0
               ? 'Tap the map to start'
               : mode === 'area' && pointCount < 3
@@ -52,8 +89,19 @@ export default function MeasureBar({
                 : totalLabel}
           </Text>
           <View style={styles.actions}>
-            <Pressable style={styles.smallButton} onPress={onUndo} disabled={pointCount === 0} hitSlop={6}>
-              <Text style={[styles.smallButtonLabel, pointCount === 0 && styles.smallButtonLabelDisabled]}>
+            <Pressable
+              style={styles.smallButton}
+              onPress={onUndo}
+              disabled={pointCount === 0}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Undo">
+              <Text
+                style={[
+                  styles.smallButtonLabel,
+                  { color: colors.textPrimary },
+                  pointCount === 0 && styles.smallButtonLabelDisabled,
+                ]}>
                 ↺ Undo
               </Text>
             </Pressable>
@@ -64,8 +112,21 @@ export default function MeasureBar({
              * distinct actions (this one clears the shape but stays in
              * measuring mode; "✕ Done" above fully exits) resolves that
              * ambiguity instead of guessing at Kakao's real behavior. */}
-            <Pressable style={styles.smallButton} onPress={onClear} disabled={pointCount === 0} hitSlop={6}>
-              <Text style={[styles.smallButtonLabel, styles.clearLabel, pointCount === 0 && styles.smallButtonLabelDisabled]}>
+            <Pressable
+              style={styles.smallButton}
+              onPress={onClear}
+              disabled={pointCount === 0}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Clear measurement">
+              <Text
+                style={[
+                  styles.smallButtonLabel,
+                  { color: colors.textPrimary },
+                  styles.clearLabel,
+                  { color: colors.danger },
+                  pointCount === 0 && styles.smallButtonLabelDisabled,
+                ]}>
                 ✕ Clear
               </Text>
             </Pressable>

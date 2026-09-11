@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SearchResult } from '../search/api';
+import { useTheme } from '../theme/ThemeContext';
 
 export type TravelPreview =
   | { status: 'unavailable' }
@@ -27,6 +28,7 @@ export default function PlaceCard({
   onToggleFavorite,
   onReportIssue,
 }: Props) {
+  const { colors } = useTheme();
   // Corrections only make sense for our own Typesense-backed POIs (see
   // docs/research/11-kakao-naver-poi-data-sourcing.md) — not Nominatim
   // addresses, a dropped pin, "my location," or a meetup candidate, none
@@ -37,43 +39,65 @@ export default function PlaceCard({
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         {place && (
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: colors.card }]}>
             <View style={styles.header}>
               <View style={styles.headerText}>
-                <Text style={styles.name}>{place.name}</Text>
-                <Text style={styles.subtitle} numberOfLines={2}>
+                <Text style={[styles.name, { color: colors.textPrimary }]}>{place.name}</Text>
+                <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={2}>
                   {place.subtitle}
                 </Text>
               </View>
-              <Pressable style={styles.favoriteButton} onPress={onToggleFavorite}>
-                <Text style={[styles.favoriteLabel, isFavorite && styles.favoriteLabelActive]}>
+              <Pressable
+                style={[styles.favoriteButton, { backgroundColor: colors.divider }]}
+                onPress={onToggleFavorite}
+                accessibilityRole="button"
+                accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                accessibilityState={{ selected: isFavorite }}>
+                <Text
+                  style={[
+                    styles.favoriteLabel,
+                    { color: colors.textSecondary },
+                    isFavorite && styles.favoriteLabelActive,
+                  ]}>
                   {isFavorite ? '★' : '☆'}
                 </Text>
               </Pressable>
-              <Pressable style={styles.closeButton} onPress={onClose}>
-                <Text style={styles.closeLabel}>✕</Text>
+              <Pressable
+                style={[styles.closeButton, { backgroundColor: colors.divider }]}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close">
+                <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
               </Pressable>
             </View>
 
             {travelPreview.status === 'loading' && (
-              <Text style={styles.travelText}>Finding travel time…</Text>
+              <Text style={[styles.travelText, { color: colors.accent }]}>Finding travel time…</Text>
             )}
             {travelPreview.status === 'ready' && (
-              <Text style={styles.travelText}>
+              <Text style={[styles.travelText, { color: colors.accent }]}>
                 🚗 {Math.round(travelPreview.durationMin)} min ({travelPreview.distanceKm.toFixed(1)} km) from you
               </Text>
             )}
             {travelPreview.status === 'unavailable' && (
-              <Text style={styles.travelHint}>Tap 📍 to enable location for travel-time previews</Text>
+              <Text style={[styles.travelHint, { color: colors.textSecondary }]}>Tap 📍 to enable location for travel-time previews</Text>
             )}
 
-            <Pressable style={styles.directionsButton} onPress={onDirections}>
-              <Text style={styles.directionsLabel}>🧭 Directions</Text>
+            <Pressable
+              style={[styles.directionsButton, { backgroundColor: colors.textPrimary }]}
+              onPress={onDirections}
+              accessibilityRole="button"
+              accessibilityLabel="Directions">
+              <Text style={[styles.directionsLabel, { color: colors.onTextPrimary }]}>🧭 Directions</Text>
             </Pressable>
 
             {isCorrectablePOI && (
-              <Pressable style={styles.reportButton} onPress={onReportIssue}>
-                <Text style={styles.reportLabel}>⚠️ Report an issue with this place</Text>
+              <Pressable
+                style={styles.reportButton}
+                onPress={onReportIssue}
+                accessibilityRole="button"
+                accessibilityLabel="Report an issue with this place">
+                <Text style={[styles.reportLabel, { color: colors.textSecondary }]}>⚠️ Report an issue with this place</Text>
               </Pressable>
             )}
           </View>

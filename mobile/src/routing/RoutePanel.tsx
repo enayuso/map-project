@@ -12,11 +12,20 @@ import {
   View,
 } from 'react-native';
 import type { Costing, RouteResult } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 export const COSTING_LABELS: Record<Costing, string> = {
   auto: '🚗 Drive',
   pedestrian: '🚶 Walk',
   bicycle: '🚲 Bike',
+};
+
+// VoiceOver reads these instead of COSTING_LABELS above — same options,
+// minus the leading emoji glyph.
+const COSTING_ACCESSIBILITY_LABELS: Record<Costing, string> = {
+  auto: 'Drive',
+  pedestrian: 'Walk',
+  bicycle: 'Bike',
 };
 
 // A real drag-to-expand bottom sheet, not a fixed box — matching Kakao/
@@ -56,6 +65,7 @@ export default function RoutePanel({
   onStartNavigation,
   onSearchAlongRoute,
 }: Props) {
+  const { colors } = useTheme();
   const expandedHeight = Dimensions.get('window').height * EXPANDED_FRACTION;
   const midpoint = (PEEK_HEIGHT + expandedHeight) / 2;
 
@@ -114,60 +124,82 @@ export default function RoutePanel({
     // for the first time we hit this and mobile/README.md issue 6.
     <Modal transparent visible={visible} animationType="slide">
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Animated.View style={[styles.panel, { height: heightAnim }]}>
+        <Animated.View style={[styles.panel, { backgroundColor: colors.card, height: heightAnim }]}>
           {/* Drag handle + header are the only pan-responder surface — the
            * scrollable maneuver list below keeps its own native scroll
            * gesture once expanded, rather than fighting this one. */}
           <View {...panResponder.panHandlers}>
-            <View style={styles.dragHandle} />
+            <View style={[styles.dragHandle, { backgroundColor: colors.dividerStrong }]} />
             <View style={styles.costingRow}>
               {(Object.keys(COSTING_LABELS) as Costing[]).map(c => (
                 <Pressable
                   key={c}
-                  style={[styles.costingButton, costing === c && styles.costingButtonActive]}
-                  onPress={() => onChangeCosting(c)}>
+                  style={[
+                    styles.costingButton,
+                    { backgroundColor: colors.divider },
+                    costing === c && styles.costingButtonActive,
+                    costing === c && { backgroundColor: colors.textPrimary },
+                  ]}
+                  onPress={() => onChangeCosting(c)}
+                  accessibilityRole="button"
+                  accessibilityLabel={COSTING_ACCESSIBILITY_LABELS[c]}
+                  accessibilityState={{ selected: costing === c }}>
                   <Text
                     style={[
                       styles.costingLabel,
+                      { color: colors.textPrimary },
                       costing === c && styles.costingLabelActive,
+                      costing === c && { color: colors.onTextPrimary },
                     ]}>
                     {COSTING_LABELS[c]}
                   </Text>
                 </Pressable>
               ))}
-              <Pressable style={styles.clearButton} onPress={onClear}>
-                <Text style={styles.clearLabel}>✕</Text>
+              <Pressable
+                style={[styles.clearButton, { backgroundColor: colors.divider }]}
+                onPress={onClear}
+                accessibilityRole="button"
+                accessibilityLabel="Clear route">
+                <Text style={[styles.clearLabel, { color: colors.textPrimary }]}>✕</Text>
               </Pressable>
             </View>
 
             {loading && (
               <View style={styles.centerRow}>
-                <ActivityIndicator size="small" color="#8a8578" />
-                <Text style={styles.loadingText}>Finding route…</Text>
+                <ActivityIndicator size="small" color={colors.textSecondary} />
+                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Finding route…</Text>
               </View>
             )}
 
-            {error && !loading && <Text style={styles.errorText}>{error}</Text>}
+            {error && !loading && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
             {route && !loading && (
               <>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryText}>
+                  <Text style={[styles.summaryText, { color: colors.textPrimary }]}>
                     {route.distanceKm.toFixed(1)} km · {Math.round(route.durationMin)} min
                   </Text>
                   {route.hasFerry && (
-                    <Text style={styles.ferryBadge}>⛴ includes ferry</Text>
+                    <Text style={[styles.ferryBadge, { color: colors.accent }]}>⛴ includes ferry</Text>
                   )}
                 </View>
                 <View style={styles.actionRow}>
-                  <Pressable style={styles.startButton} onPress={onStartNavigation}>
+                  <Pressable
+                    style={styles.startButton}
+                    onPress={onStartNavigation}
+                    accessibilityRole="button"
+                    accessibilityLabel="Start navigation">
                     <Text style={styles.startLabel}>▶ Start</Text>
                   </Pressable>
-                  <Pressable style={styles.alongRouteButton} onPress={onSearchAlongRoute}>
+                  <Pressable
+                    style={[styles.alongRouteButton, { backgroundColor: colors.divider }]}
+                    onPress={onSearchAlongRoute}
+                    accessibilityRole="button"
+                    accessibilityLabel="Search along route">
                     <Text style={styles.alongRouteLabel}>🔍</Text>
                   </Pressable>
                 </View>
-                <Text style={styles.dragHint}>▲ Drag up for full directions</Text>
+                <Text style={[styles.dragHint, { color: colors.textSecondary }]}>▲ Drag up for full directions</Text>
               </>
             )}
           </View>
@@ -175,8 +207,8 @@ export default function RoutePanel({
           {route && !loading && (
             <ScrollView style={styles.maneuverList} keyboardShouldPersistTaps="handled">
               {route.maneuvers.map((m, i) => (
-                <View key={i} style={styles.maneuverRow}>
-                  <Text style={styles.maneuverText}>{m.instruction}</Text>
+                <View key={i} style={[styles.maneuverRow, { borderBottomColor: colors.divider }]}>
+                  <Text style={[styles.maneuverText, { color: colors.textPrimary }]}>{m.instruction}</Text>
                 </View>
               ))}
             </ScrollView>

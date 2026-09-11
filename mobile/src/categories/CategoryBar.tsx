@@ -30,7 +30,10 @@ export default function CategoryBar({ active, onSelect }: Props) {
           <Pressable
             key={cat.key}
             style={[styles.chip, isActive && styles.chipActive]}
-            onPress={() => onSelect(cat.key)}>
+            onPress={() => onSelect(cat.key)}
+            accessibilityRole="button"
+            accessibilityLabel={cat.label}
+            accessibilityState={{ selected: isActive }}>
             <Text style={styles.chipEmoji}>{cat.emoji}</Text>
             <Text style={[styles.chipLabel, isActive && styles.chipLabelActive]}>
               {cat.label}

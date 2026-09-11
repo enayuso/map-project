@@ -11,6 +11,12 @@ import {
   View,
 } from 'react-native';
 import { searchAll, type SearchResult } from './api';
+import { useTheme } from '../theme/ThemeContext';
+
+// VoiceOver labels describe what a row does in words — strip the leading
+// emoji glyph callers put in visible labels (extraShortcuts, section
+// headers) rather than reading it out character-by-character.
+const stripLeadingEmoji = (label: string) => label.replace(/^[^\p{L}\p{N}]+/u, '');
 
 const DEBOUNCE_MS = 300;
 // Guards against the exact tap that opens the dropdown also closing it —
@@ -76,6 +82,7 @@ export default function SearchBox({
   onFocus,
   value,
 }: Props) {
+  const { colors } = useTheme();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -188,11 +195,11 @@ export default function SearchBox({
 
   return (
     <View style={embedded ? styles.embeddedContainer : styles.container}>
-      <View style={[styles.searchBar, embedded && styles.searchBarEmbedded]}>
+      <View style={[styles.searchBar, { backgroundColor: colors.card }, embedded && styles.searchBarEmbedded]}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { color: colors.textPrimary }]}
           placeholder={placeholder}
-          placeholderTextColor="#8a8578"
+          placeholderTextColor={colors.textSecondary}
           value={query}
           onChangeText={text => {
             setQuery(text);
@@ -202,7 +209,7 @@ export default function SearchBox({
           autoCorrect={false}
           returnKeyType="search"
         />
-        {loading && <ActivityIndicator size="small" color="#8a8578" />}
+        {loading && <ActivityIndicator size="small" color={colors.textSecondary} />}
       </View>
 
       {/*
@@ -222,28 +229,32 @@ export default function SearchBox({
         <Pressable style={styles.backdrop} onPress={dismiss}>
           <View style={[styles.modalResultsWrapper, embedded && { top: dropdownTop }]} pointerEvents="box-none">
             <ScrollView
-              style={styles.resultsBox}
+              style={[styles.resultsBox, { backgroundColor: colors.card }]}
               keyboardShouldPersistTaps="handled">
               {showShortcuts ? (
                 <>
                   {extraShortcuts?.map(shortcut => (
                     <Pressable
                       key={shortcut.label}
-                      style={styles.resultRow}
-                      onPress={() => handleExtraShortcut(shortcut.onPress)}>
-                      <Text style={styles.resultName}>{shortcut.label}</Text>
+                      style={[styles.resultRow, { borderBottomColor: colors.divider }]}
+                      onPress={() => handleExtraShortcut(shortcut.onPress)}
+                      accessibilityRole="button"
+                      accessibilityLabel={stripLeadingEmoji(shortcut.label)}>
+                      <Text style={[styles.resultName, { color: colors.textPrimary }]}>{shortcut.label}</Text>
                     </Pressable>
                   ))}
                   {favorites.length > 0 && (
                     <>
-                      <Text style={styles.sectionHeader}>⭐ Saved places</Text>
+                      <Text style={[styles.sectionHeader, { color: colors.textSecondary }]}>⭐ Saved places</Text>
                       {favorites.map(item => (
                         <Pressable
                           key={item.id}
-                          style={styles.resultRow}
-                          onPress={() => handleSelect(item)}>
-                          <Text style={styles.resultName}>{item.name}</Text>
-                          <Text style={styles.resultSubtitle} numberOfLines={1}>
+                          style={[styles.resultRow, { borderBottomColor: colors.divider }]}
+                          onPress={() => handleSelect(item)}
+                          accessibilityRole="button"
+                          accessibilityLabel={item.name}>
+                          <Text style={[styles.resultName, { color: colors.textPrimary }]}>{item.name}</Text>
+                          <Text style={[styles.resultSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
                             {item.subtitle}
                           </Text>
                         </Pressable>
@@ -252,14 +263,16 @@ export default function SearchBox({
                   )}
                   {recentSearches.length > 0 && (
                     <>
-                      <Text style={styles.sectionHeader}>🕐 Recent</Text>
+                      <Text style={[styles.sectionHeader, { color: colors.textSecondary }]}>🕐 Recent</Text>
                       {recentSearches.map(item => (
                         <Pressable
                           key={item.id}
-                          style={styles.resultRow}
-                          onPress={() => handleSelect(item)}>
-                          <Text style={styles.resultName}>{item.name}</Text>
-                          <Text style={styles.resultSubtitle} numberOfLines={1}>
+                          style={[styles.resultRow, { borderBottomColor: colors.divider }]}
+                          onPress={() => handleSelect(item)}
+                          accessibilityRole="button"
+                          accessibilityLabel={item.name}>
+                          <Text style={[styles.resultName, { color: colors.textPrimary }]}>{item.name}</Text>
+                          <Text style={[styles.resultSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
                             {item.subtitle}
                           </Text>
                         </Pressable>
@@ -271,10 +284,12 @@ export default function SearchBox({
                 results.map(item => (
                   <Pressable
                     key={item.id}
-                    style={styles.resultRow}
-                    onPress={() => handleSelect(item)}>
-                    <Text style={styles.resultName}>{item.name}</Text>
-                    <Text style={styles.resultSubtitle} numberOfLines={1}>
+                    style={[styles.resultRow, { borderBottomColor: colors.divider }]}
+                    onPress={() => handleSelect(item)}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.name}>
+                    <Text style={[styles.resultName, { color: colors.textPrimary }]}>{item.name}</Text>
+                    <Text style={[styles.resultSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
                       {item.subtitle}
                     </Text>
                   </Pressable>

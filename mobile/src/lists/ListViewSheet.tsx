@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ListPlace, SharedList } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -10,31 +11,47 @@ type Props = {
 };
 
 export default function ListViewSheet({ visible, list, onSelect, onClose }: Props) {
+  const { colors } = useTheme();
+
   return (
     // Modal, not a plain overlay — same touch-swallowing reason as every
     // other mounts/unmounts-based list in this app (mobile/README.md
     // issue 6, src/search/SearchBox.tsx).
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
+        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
           <View style={styles.header}>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>
               {list?.label ?? 'Shared list'}
             </Text>
-            <Pressable style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeLabel}>✕</Text>
+            <Pressable
+              style={[styles.closeButton, { backgroundColor: colors.divider }]}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
             </Pressable>
           </View>
 
-          {list && list.places.length === 0 && <Text style={styles.empty}>This list is empty.</Text>}
+          {list && list.places.length === 0 && <Text style={[styles.empty, { color: colors.textSecondary }]}>This list is empty.</Text>}
 
           {list && list.places.length > 0 && (
             <ScrollView style={styles.list}>
               {list.places.map(place => (
-                <Pressable key={place.id} style={styles.row} onPress={() => onSelect(place)}>
-                  <Text style={styles.name}>{place.name}</Text>
-                  <Text style={styles.subtitle} numberOfLines={1}>
+                <Pressable
+                  key={place.id}
+                  style={[styles.row, { borderBottomColor: colors.divider }]}
+                  onPress={() => onSelect(place)}
+                  accessibilityRole="button"
+                  accessibilityLabel={place.name}>
+                  <Text style={[styles.name, { color: colors.textPrimary }]}>{place.name}</Text>
+                  <Text style={[styles.subtitle, { color: colors.textSecondary }]} numberOfLines={1}>
                     {place.subtitle}
                   </Text>
                 </Pressable>

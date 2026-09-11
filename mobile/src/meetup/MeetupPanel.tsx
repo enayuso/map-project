@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import SearchBox from '../search/SearchBox';
 import type { SearchResult } from '../search/api';
+import { useTheme } from '../theme/ThemeContext';
 
 // Input panel for the fair meeting-point calculator: 2-5 participant slots
 // (search, current-location shortcut, or a map tap — same input methods
@@ -47,22 +48,28 @@ export default function MeetupPanel({
   recentSearches,
   favorites,
 }: Props) {
+  const { colors } = useTheme();
   const filledCount = participants.filter(Boolean).length;
   const canFind = filledCount >= MIN_PARTICIPANTS && !finding;
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>🤝 Find a meeting point</Text>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>🤝 Find a meeting point</Text>
+          <Pressable
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
 
         {participants.map((participant, index) => (
           <View key={index}>
-            {index > 0 && <View style={styles.divider} />}
+            {index > 0 && <View style={[styles.divider, { backgroundColor: colors.dividerStrong }]} />}
             <View style={[styles.fieldRow, activeIndex === index && styles.fieldRowActive]}>
               <View style={[styles.dot, { backgroundColor: PARTICIPANT_COLORS[index] }]} />
               <SearchBox
@@ -80,13 +87,23 @@ export default function MeetupPanel({
                 ]}
               />
               {participant && (
-                <Pressable style={styles.rowButton} onPress={() => onClearParticipant(index)} hitSlop={8}>
-                  <Text style={styles.rowButtonLabel}>✕</Text>
+                <Pressable
+                  style={styles.rowButton}
+                  onPress={() => onClearParticipant(index)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Clear person ${index + 1}`}>
+                  <Text style={[styles.rowButtonLabel, { color: colors.textSecondary }]}>✕</Text>
                 </Pressable>
               )}
               {index >= MIN_PARTICIPANTS && (
-                <Pressable style={styles.rowButton} onPress={() => onRemoveParticipant(index)} hitSlop={8}>
-                  <Text style={styles.rowButtonLabel}>🗑</Text>
+                <Pressable
+                  style={styles.rowButton}
+                  onPress={() => onRemoveParticipant(index)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove person ${index + 1}`}>
+                  <Text style={[styles.rowButtonLabel, { color: colors.textSecondary }]}>🗑</Text>
                 </Pressable>
               )}
             </View>
@@ -94,25 +111,31 @@ export default function MeetupPanel({
         ))}
 
         {participants.length < MAX_PARTICIPANTS && (
-          <Pressable style={styles.addRow} onPress={onAddParticipant}>
-            <Text style={styles.addLabel}>+ Add person</Text>
+          <Pressable
+            style={styles.addRow}
+            onPress={onAddParticipant}
+            accessibilityRole="button"
+            accessibilityLabel="Add person">
+            <Text style={[styles.addLabel, { color: colors.accent }]}>+ Add person</Text>
           </Pressable>
         )}
 
         <Pressable
-          style={[styles.findButton, !canFind && styles.findButtonDisabled]}
+          style={[styles.findButton, { backgroundColor: colors.textPrimary }, !canFind && styles.findButtonDisabled]}
           onPress={onFindMeetupPoint}
-          disabled={!canFind}>
+          disabled={!canFind}
+          accessibilityRole="button"
+          accessibilityLabel="Find a fair place to meet">
           {finding ? (
-            <ActivityIndicator size="small" color="#ffffff" />
+            <ActivityIndicator size="small" color={colors.onTextPrimary} />
           ) : (
-            <Text style={styles.findLabel}>Find a fair place to meet</Text>
+            <Text style={[styles.findLabel, { color: colors.onTextPrimary }]}>Find a fair place to meet</Text>
           )}
         </Pressable>
       </View>
 
       {filledCount < MIN_PARTICIPANTS && (
-        <Text style={styles.hint}>Add at least 2 people — search, use current location, or tap the map</Text>
+        <Text style={[styles.hint, { color: colors.textPrimary }]}>Add at least 2 people — search, use current location, or tap the map</Text>
       )}
     </View>
   );

@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CATEGORIES } from '../categories/categories';
 import type { AlongRouteResult } from './searchAlongRoute';
+import { useTheme } from '../theme/ThemeContext';
 
 // Same bottom-sheet Modal pattern as src/lists/ListViewSheet.tsx. Category
 // chips reuse the app's existing category taxonomy (src/categories/) rather
@@ -31,17 +32,27 @@ export default function AlongRouteSheet({
   onSelectResult,
   onClose,
 }: Props) {
+  const { colors } = useTheme();
   const categories = CATEGORIES.filter(c => ALONG_ROUTE_CATEGORIES.includes(c.key));
 
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
+        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>🔍 Search along route</Text>
-            <Pressable style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeLabel}>✕</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>🔍 Search along route</Text>
+            <Pressable
+              style={[styles.closeButton, { backgroundColor: colors.divider }]}
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
             </Pressable>
           </View>
 
@@ -49,9 +60,21 @@ export default function AlongRouteSheet({
             {categories.map(c => (
               <Pressable
                 key={c.key}
-                style={[styles.chip, activeCategory === c.key && styles.chipActive]}
-                onPress={() => onSelectCategory(c.key)}>
-                <Text style={[styles.chipLabel, activeCategory === c.key && styles.chipLabelActive]}>
+                style={[
+                  styles.chip,
+                  activeCategory === c.key && styles.chipActive,
+                  { backgroundColor: activeCategory === c.key ? colors.textPrimary : colors.divider },
+                ]}
+                onPress={() => onSelectCategory(c.key)}
+                accessibilityRole="button"
+                accessibilityLabel={c.label}
+                accessibilityState={{ selected: activeCategory === c.key }}>
+                <Text
+                  style={[
+                    styles.chipLabel,
+                    activeCategory === c.key && styles.chipLabelActive,
+                    { color: activeCategory === c.key ? colors.onTextPrimary : colors.textPrimary },
+                  ]}>
                   {c.emoji} {c.label}
                 </Text>
               </Pressable>
@@ -60,23 +83,28 @@ export default function AlongRouteSheet({
 
           {loading && (
             <View style={styles.centerRow}>
-              <ActivityIndicator size="small" color="#8a8578" />
-              <Text style={styles.loadingText}>Searching along your route…</Text>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Searching along your route…</Text>
             </View>
           )}
 
-          {error && !loading && <Text style={styles.errorText}>{error}</Text>}
+          {error && !loading && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
           {!loading && !error && activeCategory && results.length === 0 && (
-            <Text style={styles.empty}>Nothing found within 3km of your route.</Text>
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>Nothing found within 3km of your route.</Text>
           )}
 
           {!loading && results.length > 0 && (
             <ScrollView style={styles.list}>
               {results.map(r => (
-                <Pressable key={r.id} style={styles.row} onPress={() => onSelectResult(r)}>
-                  <Text style={styles.name}>{r.name}</Text>
-                  <Text style={styles.meta}>
+                <Pressable
+                  key={r.id}
+                  style={[styles.row, { borderBottomColor: colors.divider }]}
+                  onPress={() => onSelectResult(r)}
+                  accessibilityRole="button"
+                  accessibilityLabel={r.name}>
+                  <Text style={[styles.name, { color: colors.textPrimary }]}>{r.name}</Text>
+                  <Text style={[styles.meta, { color: colors.textSecondary }]}>
                     {r.progressKm.toFixed(0)} km ahead · {r.detourKm < 0.1 ? 'right on your route' : `${r.detourKm.toFixed(1)} km off route`}
                   </Text>
                 </Pressable>

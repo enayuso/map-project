@@ -23,6 +23,7 @@
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
 
 export type MoreMenuItem = {
   key: string;
@@ -42,25 +43,38 @@ type Props = {
 };
 
 export default function MoreMenu({ visible, onClose, items }: Props) {
+  const { colors } = useTheme();
   if (!visible) return null;
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>More</Text>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>More</Text>
+          <Pressable
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
 
         {items.map((item, i) => (
           <Pressable
             key={item.key}
-            style={[styles.row, i === items.length - 1 && styles.rowLast]}
-            onPress={item.onPress}>
+            style={[
+              styles.row,
+              { borderBottomColor: colors.divider },
+              i === items.length - 1 && styles.rowLast,
+            ]}
+            onPress={item.onPress}
+            accessibilityRole="button"
+            accessibilityLabel={item.label}
+            accessibilityState={item.active !== undefined ? { selected: item.active } : undefined}>
             <Text style={styles.icon}>{item.icon}</Text>
-            <Text style={styles.label}>{item.label}</Text>
+            <Text style={[styles.label, { color: colors.textPrimary }]}>{item.label}</Text>
             {item.active && (
               <View style={styles.activePill}>
                 <Text style={styles.activePillText}>On</Text>

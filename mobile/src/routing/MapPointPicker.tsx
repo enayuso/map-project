@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SearchResult } from '../search/api';
+import { useTheme } from '../theme/ThemeContext';
 
 /**
  * "Pan the map to set a point" — Naver/Kakao's 지도에서 선택 ("select on the
@@ -39,15 +40,21 @@ type Props = {
 };
 
 export default function MapPointPicker({ field, preview, loading, onCancel, onConfirm }: Props) {
+  const { colors } = useTheme();
   return (
     <>
-      <View style={styles.topBar} pointerEvents="box-none">
-        <Pressable style={styles.backButton} onPress={onCancel} hitSlop={8}>
-          <Text style={styles.backLabel}>‹</Text>
+      <View style={[styles.topBar, { backgroundColor: colors.card }]} pointerEvents="box-none">
+        <Pressable
+          style={styles.backButton}
+          onPress={onCancel}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel">
+          <Text style={[styles.backLabel, { color: colors.textPrimary }]}>‹</Text>
         </Pressable>
-        <Text style={styles.title}>{FIELD_LABEL[field]}</Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>{FIELD_LABEL[field]}</Text>
       </View>
-      <Text style={styles.instruction} pointerEvents="none">
+      <Text style={[styles.instruction, { color: colors.textPrimary }]} pointerEvents="none">
         Move the map to set the location
       </Text>
 
@@ -58,28 +65,38 @@ export default function MapPointPicker({ field, preview, loading, onCancel, onCo
         <View style={[styles.pin, { backgroundColor: PIN_COLOR[field] }]} />
       </View>
 
-      <View style={styles.bottomSheet}>
+      <View style={[styles.bottomSheet, { backgroundColor: colors.card }]}>
         {loading && (
           <View style={styles.row}>
-            <ActivityIndicator size="small" color="#8a8578" />
-            <Text style={styles.loadingText}>Finding address…</Text>
+            <ActivityIndicator size="small" color={colors.textSecondary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Finding address…</Text>
           </View>
         )}
         {!loading && preview && (
           <>
-            <Text style={styles.addressName}>{preview.name}</Text>
-            <Text style={styles.addressSubtitle} numberOfLines={2}>
+            <Text style={[styles.addressName, { color: colors.textPrimary }]}>{preview.name}</Text>
+            <Text style={[styles.addressSubtitle, { color: colors.textSecondary }]} numberOfLines={2}>
               {preview.subtitle}
             </Text>
           </>
         )}
-        {!loading && !preview && <Text style={styles.addressSubtitle}>Could not find an address here.</Text>}
+        {!loading && !preview && (
+          <Text style={[styles.addressSubtitle, { color: colors.textSecondary }]}>
+            Could not find an address here.
+          </Text>
+        )}
 
         <Pressable
-          style={[styles.confirmButton, (loading || !preview) && styles.confirmButtonDisabled]}
+          style={[
+            styles.confirmButton,
+            { backgroundColor: colors.textPrimary },
+            (loading || !preview) && styles.confirmButtonDisabled,
+          ]}
           onPress={onConfirm}
-          disabled={loading || !preview}>
-          <Text style={styles.confirmLabel}>Confirm</Text>
+          disabled={loading || !preview}
+          accessibilityRole="button"
+          accessibilityLabel="Confirm">
+          <Text style={[styles.confirmLabel, { color: colors.onTextPrimary }]}>Confirm</Text>
         </Pressable>
       </View>
     </>

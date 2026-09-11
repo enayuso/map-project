@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { weatherCodeInfo } from './weatherCodes';
 import { formatTemp, type CurrentWeather, type TempUnit } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -24,49 +25,78 @@ export default function WeatherWidget({
   unit,
   onToggleUnit,
 }: Props) {
+  const { colors } = useTheme();
   if (!visible) return null;
 
   const info = weather ? weatherCodeInfo(weather.weatherCode) : null;
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>Weather here</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Weather here</Text>
           {/* Its own pressable, deliberately outside weatherRow below —
            * that whole row is tap-to-refresh, and this shouldn't also
            * trigger a refetch just for switching units (formatTemp is a
            * pure display conversion, no new request needed). */}
-          <Pressable style={styles.unitToggle} onPress={onToggleUnit} hitSlop={8}>
-            <Text style={[styles.unitLabel, unit === 'C' && styles.unitLabelActive]}>°C</Text>
+          <Pressable
+            style={[styles.unitToggle, { backgroundColor: colors.divider }]}
+            onPress={onToggleUnit}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={unit === 'C' ? 'Switch to Fahrenheit' : 'Switch to Celsius'}>
+            <Text
+              style={[
+                styles.unitLabel,
+                unit === 'C' && styles.unitLabelActive,
+                { color: unit === 'C' ? colors.textPrimary : colors.textSecondary },
+              ]}>
+              °C
+            </Text>
             <Text style={styles.unitSeparator}>/</Text>
-            <Text style={[styles.unitLabel, unit === 'F' && styles.unitLabelActive]}>°F</Text>
+            <Text
+              style={[
+                styles.unitLabel,
+                unit === 'F' && styles.unitLabelActive,
+                { color: unit === 'F' ? colors.textPrimary : colors.textSecondary },
+              ]}>
+              °F
+            </Text>
           </Pressable>
-          <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-            <Text style={styles.closeLabel}>✕</Text>
+          <Pressable
+            style={[styles.closeButton, { backgroundColor: colors.divider }]}
+            onPress={onClose}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close">
+            <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
 
         {loading && (
           <View style={styles.centerRow}>
-            <ActivityIndicator size="small" color="#8a8578" />
-            <Text style={styles.loadingText}>Checking conditions…</Text>
+            <ActivityIndicator size="small" color={colors.textSecondary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Checking conditions…</Text>
           </View>
         )}
 
-        {error && !loading && <Text style={styles.errorText}>{error}</Text>}
+        {error && !loading && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
         {weather && info && !loading && (
-          <Pressable style={styles.weatherRow} onPress={onRefresh}>
+          <Pressable
+            style={styles.weatherRow}
+            onPress={onRefresh}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh weather">
             <Text style={styles.emoji}>{info.emoji}</Text>
             <View style={styles.details}>
-              <Text style={styles.temp}>{formatTemp(weather.tempC, unit)}</Text>
-              <Text style={styles.label}>{info.label}</Text>
-              <Text style={styles.meta}>
+              <Text style={[styles.temp, { color: colors.textPrimary }]}>{formatTemp(weather.tempC, unit)}</Text>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>{info.label}</Text>
+              <Text style={[styles.meta, { color: colors.textSecondary }]}>
                 💧 {weather.humidityPct}% · 💨 {Math.round(weather.windKmh)} km/h
               </Text>
             </View>
-            <Text style={styles.refreshHint}>↻</Text>
+            <Text style={[styles.refreshHint, { color: colors.textSecondary }]}>↻</Text>
           </Pressable>
         )}
       </View>

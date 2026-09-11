@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { HAZARD_TYPE_LABELS, type HazardReport } from './api';
+import { useTheme } from '../theme/ThemeContext';
 
 // Same bottom-sheet Modal pattern as src/places/PlaceCard.tsx — a marker
 // tap opens this over the map, so it needs the Modal wrapper (facebook/
@@ -33,34 +34,55 @@ export default function HazardInfoCard({
   onConfirm,
   onDelete,
 }: Props) {
+  const { colors } = useTheme();
+
   return (
     <Modal transparent visible={!!hazard} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop} pointerEvents="box-none">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
         {hazard && (
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: colors.card }]}>
             <View style={styles.header}>
-              <Text style={styles.title}>{HAZARD_TYPE_LABELS[hazard.type]}</Text>
-              <Pressable style={styles.closeButton} onPress={onClose}>
-                <Text style={styles.closeLabel}>✕</Text>
+              <Text style={[styles.title, { color: colors.textPrimary }]}>{HAZARD_TYPE_LABELS[hazard.type]}</Text>
+              <Pressable
+                style={[styles.closeButton, { backgroundColor: colors.divider }]}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close">
+                <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
               </Pressable>
             </View>
 
-            {hazard.note && <Text style={styles.note}>{hazard.note}</Text>}
+            {hazard.note && <Text style={[styles.note, { color: colors.textPrimary }]}>{hazard.note}</Text>}
 
-            <Text style={styles.meta}>
+            <Text style={[styles.meta, { color: colors.textSecondary }]}>
               Reported {timeAgo(hazard.reportedAt)}
               {hazard.confirmCount > 0 &&
                 ` · confirmed still there ${hazard.confirmCount} time${hazard.confirmCount === 1 ? '' : 's'}`}
             </Text>
 
-            <Pressable style={styles.confirmButton} onPress={onConfirm} disabled={confirming}>
+            <Pressable
+              style={styles.confirmButton}
+              onPress={onConfirm}
+              disabled={confirming}
+              accessibilityRole="button"
+              accessibilityLabel="Still here">
               <Text style={styles.confirmLabel}>{confirming ? 'Confirming…' : '✓ Still here'}</Text>
             </Pressable>
 
             {isMine && (
-              <Pressable style={styles.deleteButton} onPress={onDelete} disabled={deleting}>
-                <Text style={styles.deleteLabel}>{deleting ? 'Removing…' : 'Remove my report'}</Text>
+              <Pressable
+                style={[styles.deleteButton, { backgroundColor: colors.divider }]}
+                onPress={onDelete}
+                disabled={deleting}
+                accessibilityRole="button"
+                accessibilityLabel="Remove my report">
+                <Text style={[styles.deleteLabel, { color: colors.danger }]}>{deleting ? 'Removing…' : 'Remove my report'}</Text>
               </Pressable>
             )}
           </View>
