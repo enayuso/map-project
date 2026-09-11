@@ -33,6 +33,7 @@ services:
     volumes:
       - ./martin-config.yaml:/config/martin-config.yaml:ro
       - ../data/satellite:/data/satellite:ro
+      - ../data/fonts:/fonts:ro
       - ../styles:/styles:ro
     ports:
       - "3000:3000"

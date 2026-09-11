@@ -1,7 +1,7 @@
 {
   "version": 8,
   "name": "Belize Basic (Phase 1 dev style)",
-  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "glyphs": "http://127.0.0.1:3000/font/{fontstack}/{range}",
   "sources": {
     "polygons": {
       "type": "vector",

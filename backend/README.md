@@ -98,3 +98,11 @@ Belize spans ~20 Sentinel-2 MGRS tiles (100km × 100km each, 200-350MB as Cloud-
 **Zoom range**: built for zoom 9-14 only, not 0-14 — `mobile/App.tsx`'s `MIN_ZOOM` is 9 (see its own zoomed-out-UX comment), so there's no reachable use for lower-zoom overview tiles. Native resolution (~10m/pixel) caps out at zoom 14; MapLibre upscales past that like any other capped tile source.
 
 Re-running `scripts/build_satellite_mosaic.sh` (e.g. for fresher/less cloudy imagery later) overwrites `data/satellite/belize_satellite.mbtiles` in place — no `martin-config.yaml` change needed, just `docker compose restart martin`.
+
+## `fonts` — self-hosted map-label glyphs
+
+Martin has its own built-in font source (`-f/--font`, config's `fonts:` block) that we'd never used until this fixed a real crash: `styles/*.json`'s `glyphs` field used to point at `https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf` (MapLibre's own demo tile server — never meant as a public font CDN), which triggers an uncaught `std::regex_error` inside maplibre-native's offline-pack download code ([maplibre-native#4403](https://github.com/maplibre/maplibre-native/issues/4403)), aborting the whole app 100% of the time. Live map rendering was unaffected (different, non-buggy code path) — only `OfflineManager.createPack()` hit it.
+
+Fix: self-host the two fonts our styles actually reference (`Noto Sans Regular`/`Bold` — grep `styles/*.json`'s `text-font` arrays if that ever changes) via `scripts/download_fonts.sh`, which fetches them (SIL OFL-licensed, from the upstream [notofonts/noto-fonts](https://github.com/notofonts/noto-fonts) project — not Google's fonts mirror, which only ships variable fonts, whose name-table strings don't reliably resolve to a static "Bold"/"Regular" fontstack name the way Martin's font source expects) into `data/fonts/` (gitignored like the rest of `data/`, regenerable by the script). `styles/*.json`'s `glyphs` now reads `http://127.0.0.1:3000/font/{fontstack}/{range}` — Martin's own canonical (non-redirecting) glyph-serving path, confirmed via a direct `curl` before wiring it in.
+
+Run `scripts/download_fonts.sh` once (part of first-time backend setup, alongside building the satellite mosaic), then `docker compose restart martin` to pick the fonts up — Martin logs `Configured font font.name=Noto Sans Regular ...` on startup when it finds them.

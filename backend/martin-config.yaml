@@ -23,6 +23,18 @@ styles:
   paths:
     - /styles
 
+# Self-hosted glyphs (Noto Sans Regular/Bold, the only fontstacks our
+# styles/*.json reference) — see data/fonts/README.md. Fixes a real
+# maplibre-native crash: offline pack downloads abort with an uncaught
+# std::regex_error when a style's `glyphs` URL points at
+# demotiles.maplibre.org (github.com/maplibre/maplibre-native/issues/4403).
+# Self-hosting (rather than pointing at some other third party) also means
+# offline downloads for remote Belize areas don't depend on an external
+# font server's uptime.
+fonts:
+  paths:
+    - /fonts
+
 postgres:
   connection_string: postgres://belize:devpass123@postgis:5432/belize
   auto_publish: false

@@ -34,6 +34,7 @@ data/raw/
 data/tiles/
 data/overture/
 data/audit-cayo-toledo/
+data/fonts/
 *.osm.pbf
 *.mbtiles
 

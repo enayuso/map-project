@@ -1,7 +1,7 @@
 {
   "version": 8,
   "name": "Belize Hybrid (satellite + roads/labels)",
-  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "glyphs": "http://127.0.0.1:3000/font/{fontstack}/{range}",
   "sources": {
     "satellite": {
       "type": "raster",
