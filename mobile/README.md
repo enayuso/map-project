@@ -278,6 +278,20 @@ Built as a proper theme system, not a one-off:
 
 **Verified**: relaunched, cycled Appearance to Dark from the More menu, and confirmed live — the map itself switches to the real dark style (dark navy water, dark buildings, amber roads still popping), the More menu, its own button, and the Directions/Meet Up/Measure pills all switch to the dark palette in the same interaction, with no restart needed. TypeScript/ESLint clean across every touched file.
 
+### Fixed: recurring full-app freeze, and a Meet Up "double-fill" report (2026-09-11)
+
+Two real, previously-unresolved bugs flagged during this session's earlier full QA pass, picked as the next priority once the audit follow-ups above were done. Both root-caused to the same bug.
+
+**The freeze**: reproduced it directly rather than guessing — opened Directions, focused the origin field (opens its results dropdown), tapped "Use current location." The dropdown's own code path (`Keyboard.dismiss(); setShowResults(false);`) visibly ran (the device log confirmed the keyboard teardown actually fired, and location genuinely got enabled), yet the dropdown stayed on screen, unchanged, through three different follow-up taps — including one aimed at a completely blank area of the map, nowhere near any button. Since `src/search/SearchBox.tsx`'s results dropdown renders in a `<Modal transparent>` (needed to escape a real RN/MapView touch-swallowing bug — see below — but itself genuinely full-screen), a modal stuck in this state silently intercepts *every* tap anywhere on screen, not just its own field — exactly matching the original report's symptom of unrelated buttons (RoutePanel's tabs, the hazards button, DirectionsSearchPanel's own Cancel) all going unresponsive at once.
+
+Root cause, confirmed against a real documented failure class rather than assumed: calling `Keyboard.dismiss()` synchronously in the same tick as the `setState` that hides a `<Modal>` races two independent native UIKit transitions (the modal's own dismiss animation and the keyboard's) against each other — see [facebook/react-native#8562](https://github.com/facebook/react-native/issues/8562), "Attempt to dismiss from view controller while a presentation or dismiss is in progress!". `SearchBox.tsx` had exactly this pattern in three places (selecting a result, tapping an extra shortcut, tapping the backdrop to dismiss).
+
+**Fix**: a single `closeResults()` helper — hide the modal (`setShowResults(false)`) first, and defer `Keyboard.dismiss()` to the next tick (`setTimeout(Keyboard.dismiss, 0)`) so the two transitions never fire in the same pass. All three call sites now go through it.
+
+**The Meet Up "double-fill" report**: `MeetupPanel` renders one embedded `SearchBox` per participant (2-5 at once) — the exact same component, so it was equally exposed to this same race. Tested the reported flow directly (fill Person 1 via "Use current location," then Person 2, repeated) after the fix: both fill correctly, dropdown closes and focus auto-advances every time, no duplication, "Find a fair place to meet" runs end-to-end to real results. No separate bug found — this is the same root cause, now fixed once in the one shared component both features use.
+
+**Verified**: reproduced the exact freeze sequence, applied the fix, then repeated the identical sequence twice more — both times the dropdown now closes correctly, focus advances, and every other button on screen stays responsive throughout. Ran the full Meet Up flow (both participants via current-location, then "Find a fair place to meet") end-to-end with no anomaly. TypeScript/ESLint clean.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

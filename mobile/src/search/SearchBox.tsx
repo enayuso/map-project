@@ -127,9 +127,26 @@ export default function SearchBox({
     };
   }, [trimmed]);
 
-  const handleSelect = (result: SearchResult) => {
-    Keyboard.dismiss();
+  // Closes the dropdown Modal and dismisses the keyboard — but NOT in the
+  // same tick. Calling Keyboard.dismiss() synchronously alongside the
+  // setState that hides a <Modal> races two independent native UIKit
+  // transitions (the modal's own dismiss animation, and the keyboard's)
+  // against each other; iOS can drop or stall one, and on this app that
+  // manifested as a fully reproducible, permanently-stuck-open transparent
+  // full-screen Modal — invisible, but still capturing every touch on
+  // screen, anywhere, until a force-quit. (A real, documented React
+  // Native/UIKit failure class, not specific to this app — see e.g.
+  // facebook/react-native#8562, "Attempt to dismiss from view controller
+  // while a presentation or dismiss is in progress!") Fix: let the
+  // Modal's own hide transition start and commit on its own tick first;
+  // only ask the OS to dismiss the keyboard afterward.
+  const closeResults = () => {
     setShowResults(false);
+    setTimeout(Keyboard.dismiss, 0);
+  };
+
+  const handleSelect = (result: SearchResult) => {
+    closeResults();
     // Clear back to empty rather than filling in the selected name — the
     // place itself now shows on the map/its card, and leaving the box
     // empty means focusing it again immediately offers recents/favorites
@@ -141,8 +158,7 @@ export default function SearchBox({
   };
 
   const handleExtraShortcut = (onPress: () => void) => {
-    Keyboard.dismiss();
-    setShowResults(false);
+    closeResults();
     onPress();
   };
 
@@ -189,8 +205,7 @@ export default function SearchBox({
     // rather than trusting that defer alone to fully close the race in
     // every case.
     if (Date.now() - openedAtRef.current < DISMISS_GUARD_MS) return;
-    Keyboard.dismiss();
-    setShowResults(false);
+    closeResults();
   };
 
   return (
