@@ -104,6 +104,8 @@ import { fetchBorderCrossings, type BorderCrossing } from './src/border-crossing
 import { updateWidgetData } from './src/widget/api';
 import { weatherCodeInfo } from './src/weather/weatherCodes';
 import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
+import ErrorLogPanel from './src/errors/ErrorLogPanel';
+import { clearErrorLog, getErrorLog, logError, type LoggedError } from './src/errors/logger';
 import { formatTemp } from './src/weather/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
@@ -396,7 +398,8 @@ function App(): React.JSX.Element {
     try {
       const { code } = await createShare(currentPosition.coords.latitude, currentPosition.coords.longitude);
       setMySharingCode(code);
-    } catch {
+    } catch (e) {
+      logError('sharing:start', e);
       setSharingError('Could not start sharing — try again.');
     } finally {
       setSharingBusy(false);
@@ -418,6 +421,7 @@ function App(): React.JSX.Element {
       setViewedPosition(pos);
       setViewingCode(code);
     } catch (e) {
+      logError('sharing:view', e);
       setViewingError(e instanceof Error ? e.message : 'Could not find that share.');
     } finally {
       setViewingBusy(false);
@@ -564,7 +568,8 @@ function App(): React.JSX.Element {
       const results = await searchAlongRoute(route.geometry.coordinates as [number, number][], key);
       setAlongRouteResults(results);
       if (results.length === 0) setAlongRouteError(null); // empty state has its own message, not an error
-    } catch {
+    } catch (e) {
+      logError('alongRoute:search', e, { category: key });
       setAlongRouteResults([]);
       setAlongRouteError('Could not search along this route.');
     } finally {
@@ -676,7 +681,8 @@ function App(): React.JSX.Element {
       setCategoryResults(
         nearby.map(r => ({ ...r, distanceKm: haversineKm({ lat, lon }, { lat: r.lat, lon: r.lon }) })),
       );
-    } catch {
+    } catch (e) {
+      logError('category:nearby', e, { category: key });
       setCategoryResults([]);
       setCategoryError('Could not load nearby places.');
     } finally {
@@ -777,7 +783,8 @@ function App(): React.JSX.Element {
       const candidates = await findMeetupCandidates(filled, 'auto');
       setMeetupCandidates(candidates);
       if (candidates.length === 0) setMeetupError('Nothing reachable by everyone nearby.');
-    } catch {
+    } catch (e) {
+      logError('meetup:compare', e, { participantCount: filled.length });
       setMeetupCandidates([]);
       setMeetupError('Could not compare travel times — check that everyone has a valid location.');
     } finally {
@@ -894,6 +901,7 @@ function App(): React.JSX.Element {
         },
       );
     } catch (e) {
+      logError('offline:download', e);
       setOfflineDownloadError(e instanceof Error ? e.message : 'Could not start download.');
       setOfflineDownloading(false);
     }
@@ -931,7 +939,8 @@ function App(): React.JSX.Element {
       const { code } = await createList(label, places);
       const updated = await addLocalList({ code, label, placeIds });
       setLocalLists(updated);
-    } catch {
+    } catch (e) {
+      logError('lists:create', e);
       Alert.alert('Could not create the list', 'Please try again.');
     } finally {
       setListCreating(false);
@@ -953,6 +962,7 @@ function App(): React.JSX.Element {
       setListViewSheetVisible(true);
       setListsManagerVisible(false);
     } catch (e) {
+      logError('lists:view', e);
       setListViewingError(e instanceof Error ? e.message : 'Could not find that list.');
     } finally {
       setListViewingBusy(false);
@@ -991,7 +1001,8 @@ function App(): React.JSX.Element {
       if (!center) throw new Error('no map center');
       const [lon, lat] = center;
       setWeather(await fetchCurrentWeather(lat, lon));
-    } catch {
+    } catch (e) {
+      logError('weather:refresh', e);
       setWeather(null);
       setWeatherError('Could not check the weather — try again.');
     } finally {
@@ -1042,9 +1053,11 @@ function App(): React.JSX.Element {
     const [west, south, east, north] = bounds;
     try {
       setHazards(await listHazards({ minLat: south, maxLat: north, minLon: west, maxLon: east }));
-    } catch {
-      // A failed refresh just leaves the previous set showing — not worth
-      // a user-facing error for a background layer refresh.
+    } catch (e) {
+      // Still not worth a user-facing error for a background layer refresh
+      // — a failed refresh just leaves the previous set showing — but now
+      // logged so a string of these isn't invisible (see src/errors/logger.ts).
+      logError('hazards:refresh', e);
     }
   };
 
@@ -1085,7 +1098,8 @@ function App(): React.JSX.Element {
       setHazardReportVisible(false);
       if (!hazardsVisible) setHazardsVisible(true);
       refreshHazards();
-    } catch {
+    } catch (e) {
+      logError('hazards:report', e, { type });
       setHazardReportError('Could not submit report — try again.');
     } finally {
       setHazardReportSubmitting(false);
@@ -1099,8 +1113,10 @@ function App(): React.JSX.Element {
       await confirmHazard(selectedHazard.id);
       setSelectedHazard(null);
       refreshHazards();
-    } catch {
-      // Leave the card open on failure — the user can just try again.
+    } catch (e) {
+      // Still leave the card open on failure — the user can just try
+      // again — but now logged (see src/errors/logger.ts).
+      logError('hazards:confirm', e);
     } finally {
       setHazardConfirming(false);
     }
@@ -1117,8 +1133,10 @@ function App(): React.JSX.Element {
       setMyHazardReports(prev => prev.filter(r => r.id !== selectedHazard.id));
       setSelectedHazard(null);
       refreshHazards();
-    } catch {
-      // Leave the card open on failure — the user can just try again.
+    } catch (e) {
+      // Still leave the card open on failure — the user can just try
+      // again — but now logged (see src/errors/logger.ts).
+      logError('hazards:delete', e);
     } finally {
       setHazardDeleting(false);
     }
@@ -1137,6 +1155,7 @@ function App(): React.JSX.Element {
     setFerryPanelVisible(false);
     setDiveSitesActive(false);
     setMoreMenuVisible(false);
+    setErrorLogVisible(false);
   };
 
   // --- "More" menu (2026-09-11) ---
@@ -1155,6 +1174,31 @@ function App(): React.JSX.Element {
       closeUtilityPanels();
       setMoreMenuVisible(true);
     }
+  };
+
+  // --- Error log (2026-09-11) ---
+  // Reached from the More menu — see src/errors/logger.ts's header comment
+  // for why this exists (the engineering-audit finding that the app had
+  // zero error visibility once shipped). Loads fresh from storage each
+  // time it opens rather than keeping a live-updating subscription — this
+  // is a debug tool opened rarely, not something that needs to reflect an
+  // error logged one second after opening it.
+  const [errorLogVisible, setErrorLogVisible] = useState(false);
+  const [errorLogEntries, setErrorLogEntries] = useState<LoggedError[]>([]);
+
+  const toggleErrorLog = () => {
+    if (errorLogVisible) {
+      setErrorLogVisible(false);
+    } else {
+      closeUtilityPanels();
+      setErrorLogVisible(true);
+      getErrorLog().then(setErrorLogEntries);
+    }
+  };
+
+  const handleClearErrorLog = () => {
+    clearErrorLog();
+    setErrorLogEntries([]);
   };
 
   // --- Ferry/water-taxi schedules (2026-09-11) ---
@@ -1410,7 +1454,8 @@ function App(): React.JSX.Element {
       });
       setCorrectionTarget(null);
       Alert.alert('Thanks!', "Your report was submitted — someone will review it before anything changes.");
-    } catch {
+    } catch (e) {
+      logError('poiCorrection:submit', e, { field });
       setCorrectionError('Could not submit — try again.');
     } finally {
       setCorrectionSubmitting(false);
@@ -1492,7 +1537,8 @@ function App(): React.JSX.Element {
     hazardReportVisible ||
     ferryPanelVisible ||
     diveSitesActive ||
-    moreMenuVisible;
+    moreMenuVisible ||
+    errorLogVisible;
 
   const moreMenuItems: MoreMenuItem[] = [
     { key: 'weather', icon: '🌤️', label: 'Weather', onPress: toggleWeather },
@@ -1514,6 +1560,7 @@ function App(): React.JSX.Element {
       onPress: toggleDiveSites,
       active: diveSitesActive,
     },
+    { key: 'errorLog', icon: '🐞', label: 'Error log', onPress: toggleErrorLog },
   ];
 
   return (
@@ -1866,6 +1913,13 @@ function App(): React.JSX.Element {
         )}
 
       <MoreMenu visible={moreMenuVisible} onClose={() => setMoreMenuVisible(false)} items={moreMenuItems} />
+
+      <ErrorLogPanel
+        visible={errorLogVisible}
+        onClose={() => setErrorLogVisible(false)}
+        entries={errorLogEntries}
+        onClear={handleClearErrorLog}
+      />
 
       <WeatherWidget
         visible={weatherVisible}

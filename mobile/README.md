@@ -238,6 +238,21 @@ Applied the same idea: all seven now live behind one **☰ More** button (`src/m
 
 **Verified**: relaunched and drove it directly — the button stack now shows exactly 4 controls; tapping ☰ opens the menu with all 7 rows; tapping a toggle-style row (Road hazards) flips the "On" pill live, surfaces the existing 🚧 Report-hazard pill, and highlights the ☰ button itself, while leaving the menu open (matching how Kakao/Naver's own layers panels let you flip more than one option before dismissing); tapping a panel-opening row (Weather) closes the menu and swaps in the real weather panel in the same screen slot, with live data. TypeScript/ESLint clean.
 
+### Error boundary + local crash/error log (2026-09-11)
+
+First of three follow-ups from a full engineering audit you asked for ("check on kakao/naver... any area for improvement"). The bluntest finding: an uncaught render error anywhere in the app's ~26 features crashed the whole thing with no fallback UI, and nothing was logged anywhere — no console output, no crash reporting, and several `catch` blocks silently swallowed failures with just a code comment explaining why that seemed fine at the time.
+
+Two parts:
+
+- **`src/errors/ErrorBoundary.tsx`** — a top-level React error boundary (`index.js` now wraps `<App/>` in it, not `App.tsx`'s own return — a boundary only catches errors from its *descendants*, so it has to sit above `<App/>` to catch anything App's own hooks/body might throw). Shows a plain "Something went wrong / Try again" screen instead of a hard crash. Deliberately doesn't attempt a full JS-bundle reload (`DevSettings.reload()` is dev-only) — resetting the boundary's own state and re-rendering the child tree from scratch is the right scope for a production "try again," and is enough to recover from most transient render errors.
+- **`src/errors/logger.ts`** — `logError(scope, error, extra?)`, dropped into all 14 existing `try/catch` blocks in `App.tsx` (sharing, offline downloads, lists, weather, hazards ×4, ferry/dive-adjacent search paths, meetup, POI corrections) plus the new ErrorBoundary's own `componentDidCatch`. Every call: a structured `console.error` (visible in Xcode/simctl device logs the same way this project's native crashes have been debugged all session), plus a copy persisted locally via AsyncStorage (capped 100-entry ring buffer) — survives app relaunches, unlike console output.
+
+Reachable from **More > 🐞 Error log** (`src/errors/ErrorLogPanel.tsx`): lists recent errors (scope, message, time), a **Share log** button using React Native's own `Share` API (no new dependency — also the first real use of a native iOS share sheet anywhere in this app, itself one of the audit's other findings), and **Clear**. The actual value: a solo dev can ask a beta tester to open that panel and tap Share, and get a real report back over Messages/email/whatever, without needing their device in hand.
+
+**Deliberately not** what this is: a remote crash-reporting service (Sentry etc.). That needs its own account/DSN — a reasonable next step if this app gets real users, but a separate decision from this one, and this local-log approach needs zero new accounts or paid services to ship today. Also doesn't (can't) catch native crashes — those happen below the JS bridge entirely (see the offline-maps crash fixed earlier this session) and still need Xcode's own crash reports or a native crash SDK.
+
+**Verified end-to-end, not just code-reviewed**: temporarily threw a real error from `App`'s render body, relaunched, and confirmed the fallback UI actually renders (no white-screen crash) with a screenshot. Reopened the app fresh afterward and confirmed the error had genuinely persisted across the relaunch in More > Error log, along with a second, incidental real error the test itself triggered (a hooks-order violation from throwing before `App`'s other hooks ran) — both showing with correct scope/message/timestamp. Confirmed **Share log** opens the real iOS share sheet with the log content as text. Confirmed **Clear** empties it back to "Nothing logged this session." Removed the test throw afterward; TypeScript/ESLint clean.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))
