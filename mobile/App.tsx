@@ -101,6 +101,9 @@ import DiveSitesPanel from './src/dive-sites/DiveSitesPanel';
 import { fetchDiveSites, type DiveSite } from './src/dive-sites/api';
 import BorderCrossingInfoCard from './src/border-crossings/BorderCrossingInfoCard';
 import { fetchBorderCrossings, type BorderCrossing } from './src/border-crossings/api';
+import { updateWidgetData } from './src/widget/api';
+import { weatherCodeInfo } from './src/weather/weatherCodes';
+import { formatTemp } from './src/weather/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -994,6 +997,21 @@ function App(): React.JSX.Element {
       setWeatherLoading(false);
     }
   };
+
+  // --- iOS home screen widget (2026-09-11) ---
+  // One-way mirror into a shared App Group store — see src/widget/api.ts's
+  // header comment. Pushes a fresh copy whenever weather/tempUnit/
+  // favorites change, same "just keep it in sync" approach as the
+  // Spotlight indexing effect above.
+  useEffect(() => {
+    const info = weather ? weatherCodeInfo(weather.weatherCode) : null;
+    updateWidgetData({
+      weatherEmoji: info?.emoji,
+      weatherLabel: info?.label,
+      tempDisplay: weather ? formatTemp(weather.tempC, tempUnit) : undefined,
+      favorites: favorites.slice(0, 3).map(f => ({ name: f.name, subtitle: f.subtitle })),
+    });
+  }, [weather, tempUnit, favorites]);
 
   // --- Crowdsourced road hazard reporting (Waze's core idea) ---
   // Per docs/research/10-remaining-feature-gaps.md — genuinely undocumented

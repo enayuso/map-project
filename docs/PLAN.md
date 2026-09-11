@@ -210,9 +210,11 @@ See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.m
 
 **Follow-up (2026-09-11)**: ✅ **Border-crossing info cards** — built, see [mobile/README.md](../mobile/README.md) and `sharing/README.md`. Covers both of Belize's actual land borders (Mexico/Santa Elena, Guatemala/Benque Viejo del Carmen): hours, documents needed, real fee breakdowns, and a concrete sourced scam warning per crossing — every claim checked live this session, not recalled (e.g. caught two differently-worded fee breakdowns from two sources that actually agreed once converted to the same currency, before trusting either). Same curated-JSON pattern as ferries/dive sites; no toggle button needed since there are only ever two, so they're just always-visible map markers.
 
+**Follow-up (2026-09-11)**: ✅ **iOS home screen widget** — built, see [mobile/README.md](../mobile/README.md). Shows current weather + up to 3 favorites; no new Xcode target needed (added as a second widget in the same `BelizeMapWidgets` extension the Live Activity work created), just a new App Group entitlement + shared-storage bridge. Verified genuinely end-to-end on disk: found the real App Group container in the Simulator's filesystem and confirmed it updated with the exact live weather values shown on screen after a real fetch. App Intents/Siri Shortcuts (bundled with this item originally) not built this round — still open, see below.
+
 Not selected this round, still on the shortlist for later:
 
-- iOS home screen widget, App Intents/Siri Shortcuts (medium — same App Group/native-bridge pattern as the Live Activity work)
+- App Intents/Siri Shortcuts ("Hey Siri, navigate to [favorite]") — medium; per research/10, should target the newer App Intents framework directly rather than legacy SiriKit-style libraries
 
 Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).
 

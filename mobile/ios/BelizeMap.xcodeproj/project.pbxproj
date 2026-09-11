@@ -10,6 +10,7 @@
 		0C80B921A6F3F58F76C31292 /* libPods-BelizeMap.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-BelizeMap.a */; };
 		0F0317AA7AD408B39DC7ACAC /* NavigationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC313B147EA8B4D7CE6BF5E4 /* NavigationActivityAttributes.swift */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		2499274A578BB07B886100C6 /* WidgetDataModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 9C33F583237B75DEFEEB6D33 /* WidgetDataModule.m */; };
 		54DAA3030B7EC52C1894BD91 /* BelizeMapWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 610D79E7C9903DA6C90906A1 /* BelizeMapWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		63AC8A073FBDD987E11256E1 /* BelizeMapWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECE9DD3CB064508909DF977 /* BelizeMapWidgetsBundle.swift */; };
 		66C9A0AA4D9C2671300C39AC /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 53E84A346DA723005E659887 /* Foundation.framework */; };
@@ -17,9 +18,13 @@
 		7AC42E385B417E9972EC4CCB /* SpotlightModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D253E962D6FD973FC27BF3 /* SpotlightModule.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		855090E0D8CC807D22E0D71B /* LiveActivityModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 815A5BE1C80ABD1F7E3AE2AE /* LiveActivityModule.m */; };
+		87AE020B425A9895E1DD114E /* BelizeMapHomeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A35797D9531DB0BB1437484 /* BelizeMapHomeWidget.swift */; };
 		948BC23BC3B4232BA3571F77 /* SpotlightModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 11D92A45C999D7EEACB6D7EB /* SpotlightModule.m */; };
+		A72ACA8BD3639F92C00AB292 /* WidgetDataModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46D567286E5F43620BBF1385 /* WidgetDataModule.swift */; };
 		AC74A75281261EDFCE268DCC /* LiveActivityModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39E6E3B11687BD51B8BBC6F /* LiveActivityModule.swift */; };
 		AE9D795FB644861CE3E792EC /* BelizeMapWidgetsLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 195CB45579BC2CABE912D8EE /* BelizeMapWidgetsLiveActivity.swift */; };
+		BFB85F266A1D702C314121BE /* WidgetSharedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30C7B6A992DB0C2CD2DB7EB /* WidgetSharedData.swift */; };
+		CBD3DD3928CEFDE7BF51CF60 /* WidgetSharedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30C7B6A992DB0C2CD2DB7EB /* WidgetSharedData.swift */; };
 		DD7191C63FDFC825758801BB /* NavigationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC313B147EA8B4D7CE6BF5E4 /* NavigationActivityAttributes.swift */; };
 		FFD4D837D153AB2693BA4788 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
@@ -54,8 +59,11 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = BelizeMap/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = BelizeMap/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = BelizeMap/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		17465072D83BAF3E8E555B46 /* BelizeMapWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = BelizeMapWidgets.entitlements; path = BelizeMapWidgets.entitlements; sourceTree = "<group>"; };
 		195CB45579BC2CABE912D8EE /* BelizeMapWidgetsLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BelizeMapWidgetsLiveActivity.swift; path = BelizeMapWidgetsLiveActivity.swift; sourceTree = "<group>"; };
+		1A35797D9531DB0BB1437484 /* BelizeMapHomeWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BelizeMapHomeWidget.swift; path = BelizeMapHomeWidget.swift; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-BelizeMap.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BelizeMap.debug.xcconfig"; path = "Target Support Files/Pods-BelizeMap/Pods-BelizeMap.debug.xcconfig"; sourceTree = "<group>"; };
+		46D567286E5F43620BBF1385 /* WidgetDataModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetDataModule.swift; path = BelizeMap/WidgetDataModule.swift; sourceTree = "<group>"; };
 		4ECE9DD3CB064508909DF977 /* BelizeMapWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BelizeMapWidgetsBundle.swift; path = BelizeMapWidgetsBundle.swift; sourceTree = "<group>"; };
 		53E84A346DA723005E659887 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		5709B34CF0A7D63546082F79 /* Pods-BelizeMap.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BelizeMap.release.xcconfig"; path = "Target Support Files/Pods-BelizeMap/Pods-BelizeMap.release.xcconfig"; sourceTree = "<group>"; };
@@ -66,8 +74,11 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = BelizeMap/AppDelegate.swift; sourceTree = "<group>"; };
 		815A5BE1C80ABD1F7E3AE2AE /* LiveActivityModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = LiveActivityModule.m; path = BelizeMap/LiveActivityModule.m; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = BelizeMap/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		9C33F583237B75DEFEEB6D33 /* WidgetDataModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WidgetDataModule.m; path = BelizeMap/WidgetDataModule.m; sourceTree = "<group>"; };
+		B30C7B6A992DB0C2CD2DB7EB /* WidgetSharedData.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetSharedData.swift; path = BelizeMap/WidgetSharedData.swift; sourceTree = "<group>"; };
 		CC313B147EA8B4D7CE6BF5E4 /* NavigationActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NavigationActivityAttributes.swift; path = BelizeMap/NavigationActivityAttributes.swift; sourceTree = "<group>"; };
 		D39E6E3B11687BD51B8BBC6F /* LiveActivityModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LiveActivityModule.swift; path = BelizeMap/LiveActivityModule.swift; sourceTree = "<group>"; };
+		D82D591A066A0D0DDA7D0174 /* BelizeMap.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = BelizeMap.entitlements; path = BelizeMap/BelizeMap.entitlements; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -104,6 +115,10 @@
 				CC313B147EA8B4D7CE6BF5E4 /* NavigationActivityAttributes.swift */,
 				D39E6E3B11687BD51B8BBC6F /* LiveActivityModule.swift */,
 				815A5BE1C80ABD1F7E3AE2AE /* LiveActivityModule.m */,
+				B30C7B6A992DB0C2CD2DB7EB /* WidgetSharedData.swift */,
+				46D567286E5F43620BBF1385 /* WidgetDataModule.swift */,
+				9C33F583237B75DEFEEB6D33 /* WidgetDataModule.m */,
+				D82D591A066A0D0DDA7D0174 /* BelizeMap.entitlements */,
 			);
 			name = BelizeMap;
 			sourceTree = "<group>";
@@ -164,6 +179,8 @@
 				4ECE9DD3CB064508909DF977 /* BelizeMapWidgetsBundle.swift */,
 				195CB45579BC2CABE912D8EE /* BelizeMapWidgetsLiveActivity.swift */,
 				5C5504A894AABDFC545C3DB4 /* Info.plist */,
+				1A35797D9531DB0BB1437484 /* BelizeMapHomeWidget.swift */,
+				17465072D83BAF3E8E555B46 /* BelizeMapWidgets.entitlements */,
 			);
 			name = BelizeMapWidgets;
 			path = BelizeMapWidgets;
@@ -384,6 +401,9 @@
 				0F0317AA7AD408B39DC7ACAC /* NavigationActivityAttributes.swift in Sources */,
 				AC74A75281261EDFCE268DCC /* LiveActivityModule.swift in Sources */,
 				855090E0D8CC807D22E0D71B /* LiveActivityModule.m in Sources */,
+				BFB85F266A1D702C314121BE /* WidgetSharedData.swift in Sources */,
+				A72ACA8BD3639F92C00AB292 /* WidgetDataModule.swift in Sources */,
+				2499274A578BB07B886100C6 /* WidgetDataModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -394,6 +414,8 @@
 				63AC8A073FBDD987E11256E1 /* BelizeMapWidgetsBundle.swift in Sources */,
 				AE9D795FB644861CE3E792EC /* BelizeMapWidgetsLiveActivity.swift in Sources */,
 				DD7191C63FDFC825758801BB /* NavigationActivityAttributes.swift in Sources */,
+				CBD3DD3928CEFDE7BF51CF60 /* WidgetSharedData.swift in Sources */,
+				87AE020B425A9895E1DD114E /* BelizeMapHomeWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -415,6 +437,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = "";
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = BelizeMapWidgets/BelizeMapWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -436,6 +459,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = BelizeMap/BelizeMap.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = BelizeMap/Info.plist;
@@ -466,6 +490,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = BelizeMap/BelizeMap.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = BelizeMap/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -650,6 +675,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = "";
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = BelizeMapWidgets/BelizeMapWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
