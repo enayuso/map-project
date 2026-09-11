@@ -1,0 +1,33 @@
+{
+  "_comment": "Curated, not live — see docs/research/12-ferry-dive-site-data-sourcing.md for the same 'no structured source exists' pattern this follows. Hours/fees/scam warnings confirmed via live research 2026-09-11 across multiple current travel guides (border fees and hours are known to change; re-verify every few months, same cadence as ferry_routes.json).",
+  "crossings": [
+    {
+      "id": "mexico-santa-elena",
+      "name": "Belize–Mexico Border (Santa Elena / Subteniente López)",
+      "lat": 18.4938,
+      "lon": -88.3956,
+      "positionSource": "border-crossing-point",
+      "countries": ["Belize", "Mexico"],
+      "hours": "6:00 AM – 10:00 PM daily on both sides. Late-evening processing is slow and onward transport on the Belize side largely dries up after 5–6 PM.",
+      "documentsNeeded": "Valid passport, ideally with 6+ months' validity remaining. Crossing with a rental/hire car needs a separate import permit — few rental companies allow cross-border travel at all, so confirm before renting.",
+      "fees": "Belize land-border exit fee: ~US$20 (BZ$40 — a departure fee plus PACT conservation fee plus a border development fee). Travelers transiting through in under 24 hours without an overnight stay in Belize skip the PACT portion, paying roughly US$16. No fee to enter Belize. Mexico's own tourist fee is normally already bundled into flight tickets — overland travelers should confirm with Mexican immigration whether anything separate applies to them.",
+      "scamWarnings": "There's no official transport right at the crossing itself — travelers are commonly shuffled between taxis quoting inflated fares (often US$25–35 for a short hop). Confirm the price before getting in, or ask locally whether walking across is an option.",
+      "sourceNote": "Hours/fees/scam pattern confirmed via live search across multiple current (2025-2026) travel guides. Position from a dedicated border-crossing reference site (Barry's Borderpoints), not independently surveyed.",
+      "lastVerifiedAt": "2026-09-11"
+    },
+    {
+      "id": "guatemala-benque-viejo",
+      "name": "Belize–Guatemala Border (Benque Viejo del Carmen / Melchor de Mencos)",
+      "lat": 17.0667,
+      "lon": -89.1333,
+      "positionSource": "town-centroid-approximate",
+      "countries": ["Belize", "Guatemala"],
+      "hours": "Belize side 4:00 AM – 10:00 PM · Guatemala side 6:00 AM – 10:00 PM — effectively 6 AM–10 PM for crossing in either direction.",
+      "documentsNeeded": "Valid passport, ideally with 6+ months' validity remaining.",
+      "fees": "Belize land-border exit fee: ~US$20, same structure as the Mexico crossing. Guatemala charges no official entry/exit fee, though a small unofficial \"toll\" (roughly 10–50 GTQ) is sometimes requested — treat it as optional unless whoever's asking can produce a receipt.",
+      "scamWarnings": "The walk across the border itself takes about 2 minutes — don't pay for a taxi ride or accept paid \"help\" crossing on foot. Avoid taxi drivers waiting at a stand who claim a long distance into town; wait for a moving colectivo charging the standard posted rate instead. Be wary of anyone on the Guatemalan side asking for a fee without offering a receipt.",
+      "sourceNote": "Hours/fees/scam warnings confirmed via live fetch of a current (2025-2026) border-crossing travel guide. Position is Benque Viejo del Carmen's town centroid, not the exact checkpoint building.",
+      "lastVerifiedAt": "2026-09-11"
+    }
+  ]
+}

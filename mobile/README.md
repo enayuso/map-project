@@ -202,6 +202,14 @@ Every site's card shows a `positionSource` caveat, honestly graded: `osm` (a rea
 
 **Verified**: `GET /dive-sites` returns all 13 curated sites; confirmed live in the Simulator — tapped 🤿, saw real depth/difficulty/description/position-caveat text per site, and confirmed tapping "Directions" on the Great Blue Hole correctly closed the panel and entered routing mode with it set as the destination. TypeScript/ESLint clean, app relaunches without crashing.
 
+### Border-crossing info cards (2026-09-11)
+
+The item originally bundled with the dive-site layer above, per the same research doc: Belize's two land borders are a top pain point in every travel blog checked — hours, fees, and scams nobody officially publishes. Unlike ferries/dive sites, this needed no toggle button — there are only ever two of these fixed, real-world places, so they're just always-visible 🛂 map markers (`src/border-crossings/`). Tapping one opens `BorderCrossingInfoCard.tsx`: hours (both sides), documents needed, the actual fee breakdown (Belize charges a land-border exit fee at every crossing; Guatemala charges none, Mexico's is normally already in flight tickets for the northern crossing), a **concrete, sourced scam warning** for each (e.g. the Guatemala crossing: the walk across is ~2 minutes, don't pay for a taxi or "help" doing it), a position-confidence caveat, a last-verified date, and a **"🧭 Directions"** button.
+
+Covers Belize–Mexico (Santa Elena/Subteniente López) and Belize–Guatemala (Benque Viejo del Carmen/Melchor de Mencos) — the two actual land border crossings; no Belize–[anywhere else] land border exists to add. Same `sharing/data/*.json` hand-maintained-file pattern as ferries/dive sites, fetched once on app launch alongside favorites/recent searches rather than gated behind a toggle, since there's no reason to hide two fixed landmarks.
+
+**Verified**: `GET /border-crossings` returns both curated entries with the real researched content. Every fee/hours/scam claim was checked via live search/fetch this session (not recalled) — including catching that a generic "$20 USD departure tax" claim and a detailed "BZ$30 + BZ$7.50 PACT + BZ$2.50" breakdown from two different sources actually agree (BZ$40 = USD$20 at Belize's pegged rate) before writing either into the data. TypeScript/ESLint clean, app relaunches without crashing (confirmed via device log — the Simulator's own screenshot capture became unreliable partway through this session, so the marker-tap-to-card interaction specifically wasn't re-confirmed visually this round, but it's the identical `Marker`+Modal-card pattern already visually verified minutes earlier for ferry stops and dive sites in the same codebase).
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

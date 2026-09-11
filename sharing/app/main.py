@@ -473,6 +473,11 @@ def get_dive_sites():
     return read_json_data("dive_sites.json")
 
 
+@app.get("/border-crossings")
+def get_border_crossings():
+    return read_json_data("border_crossings.json")
+
+
 @app.get("/health")
 def health():
     return {"ok": True}

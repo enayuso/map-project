@@ -99,6 +99,8 @@ import FerryPanel from './src/ferries/FerryPanel';
 import { fetchFerryRoutes, type FerryRoute } from './src/ferries/api';
 import DiveSitesPanel from './src/dive-sites/DiveSitesPanel';
 import { fetchDiveSites, type DiveSite } from './src/dive-sites/api';
+import BorderCrossingInfoCard from './src/border-crossings/BorderCrossingInfoCard';
+import { fetchBorderCrossings, type BorderCrossing } from './src/border-crossings/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -213,6 +215,33 @@ function App(): React.JSX.Element {
     getFavorites().then(setFavorites);
     getRecentSearches().then(setRecentSearches);
   }, []);
+
+  // --- Border-crossing info cards (2026-09-11) ---
+  // Per docs/research/12-ferry-dive-site-data-sourcing.md's same "curated,
+  // not live" pattern as ferries/dive sites — only ever 2 of these
+  // (fixed, real-world locations), so they're just always-visible map
+  // markers rather than needing their own toggle button/panel; fetched
+  // once on mount like favorites/recentSearches above.
+  const [borderCrossings, setBorderCrossings] = useState<BorderCrossing[]>([]);
+  const [selectedBorderCrossing, setSelectedBorderCrossing] = useState<BorderCrossing | null>(null);
+
+  useEffect(() => {
+    fetchBorderCrossings()
+      .then(setBorderCrossings)
+      .catch(() => setBorderCrossings([])); // silent — a missing info card isn't worth a user-facing error
+  }, []);
+
+  const handleBorderCrossingDirections = (crossing: BorderCrossing) => {
+    setSelectedBorderCrossing(null);
+    startDirectionsTo({
+      id: `border-${crossing.id}`,
+      name: crossing.name,
+      subtitle: crossing.countries.join(' / '),
+      lat: crossing.lat,
+      lon: crossing.lon,
+      kind: 'poi',
+    });
+  };
 
   const recordRecentSearch = (place: SearchResult) => {
     addRecentSearch(place).then(setRecentSearches);
@@ -1586,6 +1615,17 @@ function App(): React.JSX.Element {
               </View>
             </Marker>
           ))}
+
+        {borderCrossings.map(crossing => (
+          <Marker
+            key={crossing.id}
+            lngLat={[crossing.lon, crossing.lat]}
+            onPress={() => setSelectedBorderCrossing(crossing)}>
+            <View style={styles.borderPin}>
+              <Text style={styles.borderPinEmoji}>🛂</Text>
+            </View>
+          </Marker>
+        ))}
       </Map>
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
@@ -1945,6 +1985,12 @@ function App(): React.JSX.Element {
         onClose={() => setDiveSitesActive(false)}
         onDirections={handleDiveSiteDirections}
       />
+
+      <BorderCrossingInfoCard
+        crossing={selectedBorderCrossing}
+        onClose={() => setSelectedBorderCrossing(null)}
+        onDirections={handleBorderCrossingDirections}
+      />
     </View>
   );
 }
@@ -2008,6 +2054,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   divePinEmoji: {
+    fontSize: 13,
+  },
+  borderPin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#8a6d3b',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  borderPinEmoji: {
     fontSize: 13,
   },
   directionsButtonWrap: {
