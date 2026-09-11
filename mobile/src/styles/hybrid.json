@@ -16,6 +16,12 @@
       "minzoom": 0,
       "maxzoom": 16
     },
+    "polygons": {
+      "type": "vector",
+      "tiles": ["http://127.0.0.1:3000/planet_osm_polygon/{z}/{x}/{y}"],
+      "minzoom": 0,
+      "maxzoom": 16
+    },
     "points": {
       "type": "vector",
       "tiles": ["http://127.0.0.1:3000/planet_osm_point/{z}/{x}/{y}"],
@@ -34,6 +40,19 @@
       "type": "raster",
       "source": "satellite",
       "paint": { "raster-fade-duration": 0 }
+    },
+    {
+      "id": "buildings-outline",
+      "type": "line",
+      "source": "polygons",
+      "source-layer": "planet_osm_polygon",
+      "minzoom": 14,
+      "filter": ["has", "building"],
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 14, 0.6, 19, 1.6],
+        "line-opacity": 0.85
+      }
     },
     {
       "id": "country-border",
