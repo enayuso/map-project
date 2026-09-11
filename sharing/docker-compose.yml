@@ -28,6 +28,11 @@ services:
       # psycopg2 + network access to both postgis and typesense) without
       # needing its own image/rebuild just for an admin CLI tool.
       - ../scripts:/scripts:ro
+      # Read-only mount of curated ferry/dive-site content — editing these
+      # JSON files + `docker compose restart sharing` picks up changes
+      # with no image rebuild, since this is hand-maintained reference
+      # content refreshed every few months, not a database migration.
+      - ./data:/app/data:ro
     networks:
       default:
       backend_net:

@@ -448,6 +448,31 @@ def list_corrections(status: str = "pending"):
         conn.close()
 
 
+DATA_DIR = os.environ.get("DATA_DIR", "/app/data")
+
+
+def read_json_data(filename: str):
+    """Reads a curated, hand-maintained JSON file fresh on every request —
+    see docs/research/12-ferry-dive-site-data-sourcing.md for why this is
+    plain curated content, not a database: no API/feed exists anywhere for
+    either dataset, so this project maintains its own, edited directly in
+    sharing/data/*.json and re-read live (no rebuild needed, just restart
+    the container) rather than modeled as mutable rows in Postgres."""
+    path = os.path.join(DATA_DIR, filename)
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@app.get("/ferry-routes")
+def get_ferry_routes():
+    return read_json_data("ferry_routes.json")
+
+
+@app.get("/dive-sites")
+def get_dive_sites():
+    return read_json_data("dive_sites.json")
+
+
 @app.get("/health")
 def health():
     return {"ok": True}

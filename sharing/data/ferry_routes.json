@@ -1,0 +1,92 @@
+{
+  "_comment": "Curated, not live — see docs/research/12-ferry-dive-site-data-sourcing.md. No API/feed exists for Belize water-taxi schedules anywhere (government or private); this is manually transcribed from each operator's own published schedule and needs re-checking every 2-3 months or after any hurricane-season disruption (Jun-Nov). Always update lastVerifiedAt when you touch a route.",
+  "routes": [
+    {
+      "id": "belize-city-caye-caulker-san-pedro",
+      "name": "Belize City ↔ Caye Caulker ↔ San Pedro",
+      "isInternational": false,
+      "stops": [
+        { "name": "Belize City (Marine Terminal)", "lat": 17.4977, "lon": -88.1965 },
+        { "name": "Caye Caulker", "lat": 17.7414, "lon": -88.0248 },
+        { "name": "San Pedro", "lat": 17.9245, "lon": -87.9614 }
+      ],
+      "operators": [
+        {
+          "name": "San Pedro Belize Express",
+          "url": "https://belizewatertaxi.com/schedule/",
+          "phone": "+501-226-2194"
+        },
+        {
+          "name": "Caribbean Sprinter",
+          "url": "https://sprinter.bz/sailings",
+          "phone": "+501-226-4506"
+        }
+      ],
+      "notes": "The two operators run overlapping but not identical schedules — check both. Confirmed live drift between Caribbean Sprinter's own published times and any cached/third-party copy (including OpenStreetMap's), so treat any time below as approximate.",
+      "sampleDepartures": [
+        { "from": "Belize City", "times": ["08:00", "10:30", "13:00", "15:00", "16:30"] },
+        { "from": "San Pedro", "times": ["07:00", "09:00", "11:30", "14:30", "16:30"] }
+      ],
+      "lastVerifiedAt": "2026-09-11"
+    },
+    {
+      "id": "san-pedro-chetumal",
+      "name": "San Pedro ↔ Chetumal, Mexico (international)",
+      "isInternational": true,
+      "stops": [
+        { "name": "San Pedro", "lat": 17.9245, "lon": -87.9614 },
+        { "name": "Chetumal, Mexico", "lat": 18.5001, "lon": -88.296 }
+      ],
+      "operators": [
+        {
+          "name": "San Pedro Water Jets International",
+          "url": "https://sanpedrowatertaxi.com/",
+          "phone": null
+        }
+      ],
+      "notes": "International leg — passengers must clear Belize immigration at San Pedro's Point of Entry, confirmed open only 8:00 AM–5:00 PM daily. No boat can legally arrive or depart outside that window, regardless of what an operator's own posted time says. Runs roughly every other day rather than daily per multiple independent reports — confirm directly before planning around a specific date.",
+      "sampleDepartures": [],
+      "lastVerifiedAt": "2026-09-11"
+    },
+    {
+      "id": "corozal-san-pedro",
+      "name": "Corozal ↔ San Pedro",
+      "isInternational": false,
+      "stops": [
+        { "name": "Corozal", "lat": 18.4, "lon": -88.3936 },
+        { "name": "San Pedro", "lat": 17.9245, "lon": -87.9614 }
+      ],
+      "operators": [
+        {
+          "name": "Thunderbolt Travels",
+          "url": null,
+          "phone": "+501-628-8590",
+          "contactNote": "No standalone website found — reservations run through WhatsApp/Facebook only. The least formal of the operators in this list; hardest to keep current."
+        }
+      ],
+      "notes": "Also serves Sarteneja along the way. Confirm departure directly via WhatsApp — no published schedule exists to transcribe from.",
+      "sampleDepartures": [],
+      "lastVerifiedAt": "2026-09-11"
+    },
+    {
+      "id": "placencia-independence",
+      "name": "Placencia ↔ Independence/Mango Creek",
+      "isInternational": false,
+      "stops": [
+        { "name": "Placencia", "lat": 16.5117, "lon": -88.3672 },
+        { "name": "Independence/Mango Creek", "lat": 16.5081, "lon": -88.3892 }
+      ],
+      "operators": [
+        {
+          "name": "Hokey Pokey Water Taxi",
+          "url": "https://sites.google.com/site/hokeypokeywatertaxi2016/",
+          "phone": null,
+          "contactNote": "Schedule hosted on a free Google Sites page last touched in 2016 — about as fragile a source as exists. Treat any time on it as unconfirmed until cross-checked."
+        }
+      ],
+      "notes": "Short crossing, several times daily per informal reports.",
+      "sampleDepartures": [],
+      "lastVerifiedAt": "2026-09-11"
+    }
+  ]
+}

@@ -95,6 +95,10 @@ import { addMyHazardReport, getMyHazardReports, removeMyHazardReport, type MyHaz
 import { indexSpotlightItems, subscribeToSpotlightSelection } from './src/spotlight/api';
 import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
 import { submitPOICorrection, type CorrectionField } from './src/poi-corrections/api';
+import FerryPanel from './src/ferries/FerryPanel';
+import { fetchFerryRoutes, type FerryRoute } from './src/ferries/api';
+import DiveSitesPanel from './src/dive-sites/DiveSitesPanel';
+import { fetchDiveSites, type DiveSite } from './src/dive-sites/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
 // the country from here; see the coverage note above.
@@ -1082,6 +1086,75 @@ function App(): React.JSX.Element {
     setOfflinePanelVisible(false);
     setListsManagerVisible(false);
     setWeatherVisible(false);
+    setFerryPanelVisible(false);
+    setDiveSitesActive(false);
+  };
+
+  // --- Ferry/water-taxi schedules (2026-09-11) ---
+  // Per docs/research/12-ferry-dive-site-data-sourcing.md: no API/feed
+  // exists anywhere for this — sharing/data/ferry_routes.json is curated,
+  // hand-maintained content, fetched once per app session and cached in
+  // state rather than re-fetched on every open (it changes on a
+  // months-long cadence, not per-use).
+  const [ferryPanelVisible, setFerryPanelVisible] = useState(false);
+  const [ferryRoutes, setFerryRoutes] = useState<FerryRoute[]>([]);
+  const [ferryLoading, setFerryLoading] = useState(false);
+  const [ferryError, setFerryError] = useState<string | null>(null);
+
+  const toggleFerryPanel = () => {
+    if (ferryPanelVisible) {
+      setFerryPanelVisible(false);
+      return;
+    }
+    closeUtilityPanels();
+    setFerryPanelVisible(true);
+    if (ferryRoutes.length === 0) {
+      setFerryLoading(true);
+      setFerryError(null);
+      fetchFerryRoutes()
+        .then(setFerryRoutes)
+        .catch(() => setFerryError('Could not load ferry routes.'))
+        .finally(() => setFerryLoading(false));
+    }
+  };
+
+  // --- Dive sites (2026-09-11) ---
+  // Same "no structured source exists, this is curated" situation as
+  // ferries above — see the same research doc. One toggle controls both
+  // the map markers and the list sheet together (unlike hazards, there's
+  // no independent live layer here worth keeping open past the panel).
+  const [diveSitesActive, setDiveSitesActive] = useState(false);
+  const [diveSites, setDiveSites] = useState<DiveSite[]>([]);
+  const [diveSitesLoading, setDiveSitesLoading] = useState(false);
+  const [diveSitesError, setDiveSitesError] = useState<string | null>(null);
+
+  const toggleDiveSites = () => {
+    if (diveSitesActive) {
+      setDiveSitesActive(false);
+      return;
+    }
+    closeUtilityPanels();
+    setDiveSitesActive(true);
+    if (diveSites.length === 0) {
+      setDiveSitesLoading(true);
+      setDiveSitesError(null);
+      fetchDiveSites()
+        .then(setDiveSites)
+        .catch(() => setDiveSitesError('Could not load dive sites.'))
+        .finally(() => setDiveSitesLoading(false));
+    }
+  };
+
+  const handleDiveSiteDirections = (site: DiveSite) => {
+    setDiveSitesActive(false);
+    startDirectionsTo({
+      id: `dive-${site.id}`,
+      name: site.name,
+      subtitle: site.reserve,
+      lat: site.lat,
+      lon: site.lon,
+      kind: 'poi',
+    });
   };
 
   const toggleSharingPanel = () => {
@@ -1345,7 +1418,13 @@ function App(): React.JSX.Element {
   // keeps at most one of these four open at a time; this keeps the
   // *other* top-of-screen UI out of their way too).
   const anyUtilityPanelOpen =
-    sharingPanelVisible || offlinePanelVisible || listsManagerVisible || weatherVisible || hazardReportVisible;
+    sharingPanelVisible ||
+    offlinePanelVisible ||
+    listsManagerVisible ||
+    weatherVisible ||
+    hazardReportVisible ||
+    ferryPanelVisible ||
+    diveSitesActive;
 
   return (
     <View style={styles.container}>
@@ -1478,6 +1557,32 @@ function App(): React.JSX.Element {
             <Marker key={h.id} lngLat={[h.lon, h.lat]} onPress={() => setSelectedHazard(h)}>
               <View style={styles.hazardPin}>
                 <Text style={styles.hazardPinEmoji}>{HAZARD_TYPE_EMOJI[h.type]}</Text>
+              </View>
+            </Marker>
+          ))}
+
+        {ferryPanelVisible &&
+          // Dedupe by name — the same stop (e.g. "San Pedro") appears
+          // across several routes, and each should only get one pin. Not
+          // `new Map(...)` — this file imports MapLibre's own `Map`
+          // component under that exact name, which shadows the built-in
+          // JS Map class (see src/hazards wiring for the same gotcha).
+          ferryRoutes
+            .flatMap(r => r.stops)
+            .filter((stop, i, all) => all.findIndex(s => s.name === stop.name) === i)
+            .map(stop => (
+              <Marker key={stop.name} lngLat={[stop.lon, stop.lat]}>
+                <View style={styles.ferryPin}>
+                  <Text style={styles.ferryPinEmoji}>⛴️</Text>
+                </View>
+              </Marker>
+            ))}
+
+        {diveSitesActive &&
+          diveSites.map(site => (
+            <Marker key={site.id} lngLat={[site.lon, site.lat]} onPress={() => handleDiveSiteDirections(site)}>
+              <View style={styles.divePin}>
+                <Text style={styles.divePinEmoji}>🤿</Text>
               </View>
             </Marker>
           ))}
@@ -1662,6 +1767,20 @@ function App(): React.JSX.Element {
         </Pressable>
       )}
 
+      {!pickingMapPointFor && (
+        <Pressable style={styles.ferryButton} onPress={toggleFerryPanel}>
+          <Text style={styles.satelliteButtonText}>⛴️</Text>
+        </Pressable>
+      )}
+
+      {!pickingMapPointFor && (
+        <Pressable
+          style={[styles.diveButton, diveSitesActive && styles.diveButtonActive]}
+          onPress={toggleDiveSites}>
+          <Text style={styles.satelliteButtonText}>🤿</Text>
+        </Pressable>
+      )}
+
       {hazardsVisible &&
         !hazardReportVisible &&
         !routingActive &&
@@ -1809,6 +1928,23 @@ function App(): React.JSX.Element {
         onConfirm={handleConfirmHazard}
         onDelete={handleDeleteHazard}
       />
+
+      <FerryPanel
+        visible={ferryPanelVisible}
+        loading={ferryLoading}
+        error={ferryError}
+        routes={ferryRoutes}
+        onClose={() => setFerryPanelVisible(false)}
+      />
+
+      <DiveSitesPanel
+        visible={diveSitesActive}
+        loading={diveSitesLoading}
+        error={diveSitesError}
+        sites={diveSites}
+        onClose={() => setDiveSitesActive(false)}
+        onDirections={handleDiveSiteDirections}
+      />
     </View>
   );
 }
@@ -1847,6 +1983,32 @@ const styles = StyleSheet.create({
   },
   hazardPinEmoji: {
     fontSize: 14,
+  },
+  ferryPin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#2b6cb0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ferryPinEmoji: {
+    fontSize: 13,
+  },
+  divePin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#2f7d6c',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  divePinEmoji: {
+    fontSize: 13,
   },
   directionsButtonWrap: {
     position: 'absolute',
@@ -2048,6 +2210,41 @@ const styles = StyleSheet.create({
   },
   hazardsButtonActive: {
     backgroundColor: '#f7dede',
+  },
+  ferryButton: {
+    position: 'absolute',
+    bottom: 587,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  diveButton: {
+    position: 'absolute',
+    bottom: 652,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  diveButtonActive: {
+    backgroundColor: '#e3f0ec',
   },
   reportHazardPillWrap: {
     position: 'absolute',
