@@ -208,8 +208,8 @@ See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.m
 
 Not selected this round, still on the shortlist for later:
 
-- Ferry/water-taxi schedule integration (medium — SPBE/Caribbean Sprinter routes, no existing app covers this)
-- Dive-site layer + border-crossing info cards (small — content-driven POI extensions)
+- Ferry/water-taxi schedule integration (medium — SPBE/Caribbean Sprinter routes, no existing app covers this; per [research/12-ferry-dive-site-data-sourcing.md](research/12-ferry-dive-site-data-sourcing.md), no API/feed exists anywhere — this is manually-curated content sourced from operators' own live pages, refreshed every 2-3 months, not a one-time data pull)
+- Dive-site layer + border-crossing info cards (small — content-driven POI extensions; per [research/12-ferry-dive-site-data-sourcing.md](research/12-ferry-dive-site-data-sourcing.md), individual dive-site data doesn't exist as structured data anywhere either — curate site names/depth from PADI/Audubon/Turneffe Atoll Trust's PDF map, position against UNESCO's 7 official reserve-centroid coordinates, label as curator-estimated)
 - iOS home screen widget, App Intents/Siri Shortcuts (medium — same App Group/native-bridge pattern as the Live Activity work)
 
 Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).
