@@ -103,6 +103,7 @@ import BorderCrossingInfoCard from './src/border-crossings/BorderCrossingInfoCar
 import { fetchBorderCrossings, type BorderCrossing } from './src/border-crossings/api';
 import { updateWidgetData } from './src/widget/api';
 import { weatherCodeInfo } from './src/weather/weatherCodes';
+import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
 import { formatTemp } from './src/weather/api';
 
 // Belize City — the app's initial view. The user can pan/search anywhere in
@@ -1135,6 +1136,25 @@ function App(): React.JSX.Element {
     setWeatherVisible(false);
     setFerryPanelVisible(false);
     setDiveSitesActive(false);
+    setMoreMenuVisible(false);
+  };
+
+  // --- "More" menu (2026-09-11) ---
+  // Consolidates what used to be seven separate floating buttons (weather,
+  // saved lists, offline maps, live-location sharing, road hazards, ferry
+  // schedules, dive sites) into one — see src/menu/MoreMenu.tsx's header
+  // comment for why (real Kakao/Naver screenshots both keep the map's
+  // right edge to 3-4 buttons, never seven-plus). Each row below just
+  // calls the same toggle*() function its old standalone button used to.
+  const [moreMenuVisible, setMoreMenuVisible] = useState(false);
+
+  const toggleMoreMenu = () => {
+    if (moreMenuVisible) {
+      setMoreMenuVisible(false);
+    } else {
+      closeUtilityPanels();
+      setMoreMenuVisible(true);
+    }
   };
 
   // --- Ferry/water-taxi schedules (2026-09-11) ---
@@ -1471,7 +1491,30 @@ function App(): React.JSX.Element {
     weatherVisible ||
     hazardReportVisible ||
     ferryPanelVisible ||
-    diveSitesActive;
+    diveSitesActive ||
+    moreMenuVisible;
+
+  const moreMenuItems: MoreMenuItem[] = [
+    { key: 'weather', icon: '🌤️', label: 'Weather', onPress: toggleWeather },
+    { key: 'lists', icon: '📋', label: 'Saved lists', onPress: toggleListsManager },
+    { key: 'offline', icon: '⬇️', label: 'Offline maps', onPress: toggleOfflinePanel },
+    { key: 'sharing', icon: '📡', label: 'Share my location', onPress: toggleSharingPanel },
+    {
+      key: 'hazards',
+      icon: '⚠️',
+      label: 'Road hazards',
+      onPress: toggleHazardsLayer,
+      active: hazardsVisible,
+    },
+    { key: 'ferry', icon: '⛴️', label: 'Ferry schedules', onPress: toggleFerryPanel },
+    {
+      key: 'dive',
+      icon: '🤿',
+      label: 'Dive sites',
+      onPress: toggleDiveSites,
+      active: diveSitesActive,
+    },
+  ];
 
   return (
     <View style={styles.container}>
@@ -1793,49 +1836,19 @@ function App(): React.JSX.Element {
         </Pressable>
       )}
 
-      {!pickingMapPointFor && (
-        <Pressable style={styles.sharingButton} onPress={toggleSharingPanel}>
-          <Text style={styles.satelliteButtonText}>📡</Text>
-        </Pressable>
-      )}
-
-      {!pickingMapPointFor && (
-        <Pressable style={styles.offlineButton} onPress={toggleOfflinePanel}>
-          <Text style={styles.satelliteButtonText}>⬇️</Text>
-        </Pressable>
-      )}
-
-      {!pickingMapPointFor && (
-        <Pressable style={styles.listsButton} onPress={toggleListsManager}>
-          <Text style={styles.satelliteButtonText}>📋</Text>
-        </Pressable>
-      )}
-
-      {!pickingMapPointFor && (
-        <Pressable style={styles.weatherButton} onPress={toggleWeather}>
-          <Text style={styles.satelliteButtonText}>🌤️</Text>
-        </Pressable>
-      )}
-
+      {/*
+       * One "More" button replaces what used to be seven separate ones
+       * here (weather/lists/offline/sharing/hazards/ferry/dive) — see
+       * src/menu/MoreMenu.tsx's header comment for why. moreMenuActive
+       * mirrors hazardsButtonActive/diveButtonActive's old highlight so
+       * the button still shows *something* is toggled on even while
+       * collapsed.
+       */}
       {!pickingMapPointFor && (
         <Pressable
-          style={[styles.hazardsButton, hazardsVisible && styles.hazardsButtonActive]}
-          onPress={toggleHazardsLayer}>
-          <Text style={styles.satelliteButtonText}>⚠️</Text>
-        </Pressable>
-      )}
-
-      {!pickingMapPointFor && (
-        <Pressable style={styles.ferryButton} onPress={toggleFerryPanel}>
-          <Text style={styles.satelliteButtonText}>⛴️</Text>
-        </Pressable>
-      )}
-
-      {!pickingMapPointFor && (
-        <Pressable
-          style={[styles.diveButton, diveSitesActive && styles.diveButtonActive]}
-          onPress={toggleDiveSites}>
-          <Text style={styles.satelliteButtonText}>🤿</Text>
+          style={[styles.moreButton, (hazardsVisible || diveSitesActive) && styles.moreButtonActive]}
+          onPress={toggleMoreMenu}>
+          <Text style={styles.satelliteButtonText}>☰</Text>
         </Pressable>
       )}
 
@@ -1851,6 +1864,8 @@ function App(): React.JSX.Element {
             </Pressable>
           </View>
         )}
+
+      <MoreMenu visible={moreMenuVisible} onClose={() => setMoreMenuVisible(false)} items={moreMenuItems} />
 
       <WeatherWidget
         visible={weatherVisible}
@@ -2205,7 +2220,10 @@ const styles = StyleSheet.create({
   satelliteButtonText: {
     fontSize: 20,
   },
-  sharingButton: {
+  // Replaces sharingButton/offlineButton/listsButton/weatherButton/
+  // hazardsButton(Active)/ferryButton/diveButton(Active) — seven
+  // right-edge buttons collapsed into the one that opens MoreMenu.
+  moreButton: {
     position: 'absolute',
     bottom: 262,
     right: 16,
@@ -2221,106 +2239,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 5,
   },
-  offlineButton: {
-    position: 'absolute',
-    bottom: 327,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  listsButton: {
-    position: 'absolute',
-    bottom: 392,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  weatherButton: {
-    position: 'absolute',
-    bottom: 457,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  hazardsButton: {
-    position: 'absolute',
-    bottom: 522,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  hazardsButtonActive: {
-    backgroundColor: '#f7dede',
-  },
-  ferryButton: {
-    position: 'absolute',
-    bottom: 587,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  diveButton: {
-    position: 'absolute',
-    bottom: 652,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  diveButtonActive: {
+  moreButtonActive: {
     backgroundColor: '#e3f0ec',
   },
   reportHazardPillWrap: {
