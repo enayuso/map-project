@@ -30,16 +30,20 @@ owner explicitly deletes them.
 
 import json
 import os
-import random
+import secrets
 import string
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 import psycopg2
 import psycopg2.errors
 import psycopg2.extras
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 DB_HOST = os.environ.get("DB_HOST", "postgis")
 DB_NAME = os.environ.get("DB_NAME", "belize")
@@ -60,28 +64,53 @@ app = FastAPI(title="Belize Map — Location Sharing")
 # "devpass123") — tighten before any real deployment.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Rate limiting, keyed by client IP — this service has no accounts, so a
+# share code or delete token is the only thing gating a write, and with no
+# limiter at all any of these endpoints could be spammed freely (fill the
+# hazards table, brute-force a delete_token, etc.). In-memory storage
+# (slowapi's default) is fine at this scale: one process, no need for a
+# shared Redis-backed counter across replicas. Per-route limits below are
+# grouped by how the endpoint is actually used, not a single blanket
+# number — a location share's PUT/GET are polled every few seconds during
+# active use and need real headroom, while a hazard report or POI
+# correction is a deliberate, occasional user action and doesn't.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+MUTATE_LIMIT = "10/minute"  # creating/deleting a share, list, hazard report, correction
+POLL_LIMIT = "30/minute"  # reading/updating an active location share or list
+STATIC_LIMIT = "20/minute"  # ferry/dive-site/border-crossing content, fetched ~once per session
+
 
 def get_conn():
     return psycopg2.connect(host=DB_HOST, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD)
 
 
 def generate_code() -> str:
-    return "".join(random.choices(CODE_ALPHABET, k=CODE_LENGTH))
+    # secrets.choice, not random.choice — this code is the entire access
+    # model for a share/list (no accounts), so it needs to be
+    # unguessable, not just well-distributed. random's Mersenne Twister
+    # is a fine PRNG for simulations; it's not a cryptographic one, and
+    # its output is predictable if an attacker ever recovers its internal
+    # state. secrets wraps the OS's own CSPRNG instead.
+    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
 
 
 class CreateShareBody(BaseModel):
-    lat: float
-    lon: float
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
     label: str | None = Field(default=None, max_length=80)
 
 
 class UpdateShareBody(BaseModel):
-    lat: float
-    lon: float
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
 
 
 @app.post("/shares")
-def create_share(body: CreateShareBody):
+@limiter.limit(MUTATE_LIMIT)
+def create_share(request: Request, body: CreateShareBody):
     now = datetime.now(timezone.utc)
     expires_at = now + TTL
     code = generate_code()
@@ -105,7 +134,8 @@ def create_share(body: CreateShareBody):
 
 
 @app.put("/shares/{code}")
-def update_share(code: str, body: UpdateShareBody):
+@limiter.limit(POLL_LIMIT)
+def update_share(request: Request, code: str, body: UpdateShareBody):
     now = datetime.now(timezone.utc)
     expires_at = now + TTL
     conn = get_conn()
@@ -124,7 +154,8 @@ def update_share(code: str, body: UpdateShareBody):
 
 
 @app.get("/shares/{code}")
-def get_share(code: str):
+@limiter.limit(POLL_LIMIT)
+def get_share(request: Request, code: str):
     now = datetime.now(timezone.utc)
     conn = get_conn()
     try:
@@ -149,7 +180,8 @@ def get_share(code: str):
 
 
 @app.delete("/shares/{code}")
-def delete_share(code: str):
+@limiter.limit(MUTATE_LIMIT)
+def delete_share(request: Request, code: str):
     """The explicit "stop sharing" action — deletes immediately rather
     than waiting for expiry, since the whole point is the sharer's own
     control over when it ends."""
@@ -163,25 +195,33 @@ def delete_share(code: str):
 
 
 class ListPlace(BaseModel):
-    id: str
-    name: str
-    subtitle: str
-    lat: float
-    lon: float
+    id: str = Field(max_length=200)
+    name: str = Field(max_length=200)
+    subtitle: str = Field(max_length=200)
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+# Caps how many places one shared list can hold — a Kakao/Naver-style saved
+# list is a human-curated handful of favorites, not a bulk data channel;
+# without a cap, one request could otherwise insert an arbitrarily large
+# places_json blob.
+MAX_LIST_PLACES = 200
 
 
 class CreateListBody(BaseModel):
     label: str = Field(max_length=80)
-    places: list[ListPlace]
+    places: list[ListPlace] = Field(max_length=MAX_LIST_PLACES)
 
 
 class UpdateListBody(BaseModel):
     label: str = Field(max_length=80)
-    places: list[ListPlace]
+    places: list[ListPlace] = Field(max_length=MAX_LIST_PLACES)
 
 
 @app.post("/lists")
-def create_list(body: CreateListBody):
+@limiter.limit(MUTATE_LIMIT)
+def create_list(request: Request, body: CreateListBody):
     code = generate_code()
     now = datetime.now(timezone.utc)
     places_json = json.dumps([p.model_dump() for p in body.places])
@@ -200,7 +240,8 @@ def create_list(body: CreateListBody):
 
 
 @app.put("/lists/{code}")
-def update_list(code: str, body: UpdateListBody):
+@limiter.limit(POLL_LIMIT)
+def update_list(request: Request, code: str, body: UpdateListBody):
     """The owner's device calls this whenever the list's contents change
     locally — a viewer polling GET /lists/{code} then sees the update,
     matching Naver's own "shared lists stay live" behavior (Dec 2022)."""
@@ -221,7 +262,8 @@ def update_list(code: str, body: UpdateListBody):
 
 
 @app.get("/lists/{code}")
-def get_list(code: str):
+@limiter.limit(POLL_LIMIT)
+def get_list(request: Request, code: str):
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -239,7 +281,8 @@ def get_list(code: str):
 
 
 @app.delete("/lists/{code}")
-def delete_list(code: str):
+@limiter.limit(MUTATE_LIMIT)
+def delete_list(request: Request, code: str):
     conn = get_conn()
     try:
         with conn, conn.cursor() as cur:
@@ -250,9 +293,13 @@ def delete_list(code: str):
 
 
 class ReportHazardBody(BaseModel):
-    type: str
-    lat: float
-    lon: float
+    # Not constrained to a fixed enum on purpose — HAZARD_TYPE_TTL below
+    # already falls back to a plain default for any type it doesn't
+    # recognize, a deliberate extensibility choice; max_length just caps
+    # abuse (a garbage 10KB string), not the set of valid values.
+    type: str = Field(max_length=30)
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
     note: str | None = Field(default=None, max_length=140)
 
 
@@ -280,11 +327,15 @@ def generate_delete_token() -> str:
     # Longer and full-alphabet unlike the 6-char share/list codes — this is
     # a bearer secret meant to be copied by the app, never read aloud by a
     # person, so there's no benefit to a short/unambiguous alphabet here.
-    return "".join(random.choices(string.ascii_letters + string.digits, k=24))
+    # secrets.choice, not random.choice — see generate_code's own comment;
+    # this one matters even more, since it's the only thing gating who can
+    # delete someone else's hazard report.
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24))
 
 
 @app.post("/hazards")
-def report_hazard(body: ReportHazardBody):
+@limiter.limit(MUTATE_LIMIT)
+def report_hazard(request: Request, body: ReportHazardBody):
     now = datetime.now(timezone.utc)
     ttl = HAZARD_TYPE_TTL.get(body.type, HAZARD_TTL)
     expires_at = now + ttl
@@ -303,12 +354,33 @@ def report_hazard(body: ReportHazardBody):
         conn.close()
 
 
+# Belize's own bounding box is roughly 1deg lat x 1.5deg lon (see
+# backend/martin-config.yaml's table bounds) — 10deg a side is already
+# ~10x that in each direction, generously covering "zoomed all the way out
+# to look at the whole country" with room to spare, while still rejecting
+# a query for an unbounded/planet-scale box (each degree of bbox width is
+# real work for the DB: a wider box means a full-table range scan instead
+# of one that only touches nearby rows).
+MAX_BBOX_SPAN_DEG = 10.0
+
+
 @app.get("/hazards")
-def list_hazards(min_lat: float, max_lat: float, min_lon: float, max_lon: float):
+@limiter.limit(POLL_LIMIT)
+def list_hazards(
+    request: Request,
+    min_lat: float = Query(ge=-90, le=90),
+    max_lat: float = Query(ge=-90, le=90),
+    min_lon: float = Query(ge=-180, le=180),
+    max_lon: float = Query(ge=-180, le=180),
+):
     """Bbox query, same shape as the mobile client already computes for
     offline-pack downloads (mapRef.getBounds()) — no PostGIS geography type
     needed at this scale, a plain lat/lon range is exact enough for a bbox
     filter and keeps this service's schema as simple as location_shares'."""
+    if min_lat > max_lat or min_lon > max_lon:
+        raise HTTPException(400, "min must not exceed max")
+    if (max_lat - min_lat) > MAX_BBOX_SPAN_DEG or (max_lon - min_lon) > MAX_BBOX_SPAN_DEG:
+        raise HTTPException(400, f"bbox span must not exceed {MAX_BBOX_SPAN_DEG} degrees per side")
     now = datetime.now(timezone.utc)
     conn = get_conn()
     try:
@@ -341,7 +413,8 @@ def list_hazards(min_lat: float, max_lat: float, min_lon: float, max_lon: float)
 
 
 @app.post("/hazards/{hazard_id}/confirm")
-def confirm_hazard(hazard_id: int):
+@limiter.limit(MUTATE_LIMIT)
+def confirm_hazard(request: Request, hazard_id: int):
     """"Still here" — any other user can confirm a report is still valid,
     which both bumps its expiry forward (capped at MAX_HAZARD_AGE from the
     original report, so a confirmed-forever report can't outlive that cap)
@@ -367,7 +440,8 @@ def confirm_hazard(hazard_id: int):
 
 
 @app.delete("/hazards/{hazard_id}")
-def delete_hazard(hazard_id: int, delete_token: str):
+@limiter.limit(MUTATE_LIMIT)
+def delete_hazard(request: Request, hazard_id: int, delete_token: str = Query(min_length=24, max_length=24)):
     """The reporter's own retract action — requires the delete_token only
     they received back from report_hazard, same bearer-secret trust model
     as everything else in this service."""
@@ -386,16 +460,23 @@ def delete_hazard(hazard_id: int, delete_token: str):
 
 
 class SubmitCorrectionBody(BaseModel):
-    poi_id: str
-    poi_name: str
-    field: str  # 'name' | 'category' | 'closed' | 'other'
-    current_value: str | None = None
-    suggested_value: str | None = None
+    poi_id: str = Field(max_length=200)
+    poi_name: str = Field(max_length=200)
+    # Literal, not a plain str — unlike a hazard report's `type` (which
+    # deliberately tolerates unknown values via a fallback default), the
+    # mobile client's own CorrectionField union (src/poi-corrections/api.ts)
+    # is exactly these four values with no extensibility fallback, so
+    # rejecting anything else here is the correct behavior, not just
+    # incidental hardening.
+    field: Literal["name", "category", "closed", "other"]
+    current_value: str | None = Field(default=None, max_length=200)
+    suggested_value: str | None = Field(default=None, max_length=200)
     note: str | None = Field(default=None, max_length=200)
 
 
 @app.post("/poi-corrections")
-def submit_correction(body: SubmitCorrectionBody):
+@limiter.limit(MUTATE_LIMIT)
+def submit_correction(request: Request, body: SubmitCorrectionBody):
     now = datetime.now(timezone.utc)
     conn = get_conn()
     try:
@@ -412,7 +493,8 @@ def submit_correction(body: SubmitCorrectionBody):
 
 
 @app.get("/poi-corrections")
-def list_corrections(status: str = "pending"):
+@limiter.limit(POLL_LIMIT)
+def list_corrections(request: Request, status: Literal["pending", "approved", "rejected"] = "pending"):
     """Read-only queue listing — low-risk to expose without auth (nothing
     here can be mutated through this endpoint). Approving/rejecting is
     deliberately NOT an HTTP endpoint at all — see scripts/
@@ -464,20 +546,25 @@ def read_json_data(filename: str):
 
 
 @app.get("/ferry-routes")
-def get_ferry_routes():
+@limiter.limit(STATIC_LIMIT)
+def get_ferry_routes(request: Request):
     return read_json_data("ferry_routes.json")
 
 
 @app.get("/dive-sites")
-def get_dive_sites():
+@limiter.limit(STATIC_LIMIT)
+def get_dive_sites(request: Request):
     return read_json_data("dive_sites.json")
 
 
 @app.get("/border-crossings")
-def get_border_crossings():
+@limiter.limit(STATIC_LIMIT)
+def get_border_crossings(request: Request):
     return read_json_data("border_crossings.json")
 
 
 @app.get("/health")
 def health():
+    # Deliberately not rate-limited — a health check should never be the
+    # thing that starts failing under load.
     return {"ok": True}

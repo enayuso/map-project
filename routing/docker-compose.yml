@@ -11,7 +11,7 @@ services:
     container_name: belize-valhalla
     restart: unless-stopped
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     volumes:
       - ./custom_files:/custom_files
     environment:

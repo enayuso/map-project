@@ -13,13 +13,13 @@ services:
     shm_size: 1gb
     environment:
       PBF_PATH: /data/belize-latest.osm.pbf
-      NOMINATIM_PASSWORD: nominatim_dev_local_only
+      NOMINATIM_PASSWORD: ${NOMINATIM_PASSWORD:-nominatim_dev_local_only}
       # Belize is tiny — no need for the multi-hour "import-full-planet" defaults.
       NOMINATIM_IMPORT_STYLE: full
       IMPORT_WIKIPEDIA: "false"
       FREEZE: "true"
     ports:
-      - "8082:8080"
+      - "127.0.0.1:8082:8080"
     volumes:
       - nominatim_data:/var/lib/postgresql/16/main
       - ../data/raw:/data:ro

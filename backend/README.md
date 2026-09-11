@@ -18,6 +18,8 @@ Check it's up:
 curl http://127.0.0.1:3000/catalog
 ```
 
+**Credentials**: `POSTGRES_PASSWORD` defaults to a dev-only value (`devpass123`) baked into `docker-compose.yml` — fine as-is for local dev, but copy [`.env.example`](.env.example) to `.env` and set a real value before this ever runs anywhere beyond this machine (`.env` is gitignored, and `docker-compose.yml` picks it up automatically via `${POSTGRES_PASSWORD:-devpass123}`). If you do, `sharing/.env`'s `DB_PASSWORD` needs the same value — see [sharing/README.md](../sharing/README.md#hardening-2026-09-11).
+
 ## Load data
 
 The database starts empty. Import an OSM extract with `osm2pgsql` — but **use the wrapper script, not a host-installed `osm2pgsql` directly** (see gotcha below):
