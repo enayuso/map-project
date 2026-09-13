@@ -74,7 +74,8 @@ import {
   removeFavorite,
 } from './src/places/favorites';
 import AlongRouteSheet from './src/routing/AlongRouteSheet';
-import { searchAlongRoute, type AlongRouteResult } from './src/routing/searchAlongRoute';
+import type { AlongRouteResult } from './src/routing/searchAlongRoute';
+import { useAlongRoute } from './src/routing/useAlongRoute';
 import ReportHazardSheet from './src/hazards/ReportHazardSheet';
 import HazardInfoCard from './src/hazards/HazardInfoCard';
 import { HAZARD_TYPE_EMOJI } from './src/hazards/api';
@@ -453,47 +454,14 @@ function App(): React.JSX.Element {
   // Per docs/research/10-remaining-feature-gaps.md: no new backend, just
   // src/routing/searchAlongRoute.ts sampling the existing route geometry
   // and reusing src/search/api.ts's searchNearby per sample.
-  const [alongRouteVisible, setAlongRouteVisible] = useState(false);
-  const [alongRouteCategory, setAlongRouteCategory] = useState<string | null>(null);
-  const [alongRouteLoading, setAlongRouteLoading] = useState(false);
-  const [alongRouteError, setAlongRouteError] = useState<string | null>(null);
-  const [alongRouteResults, setAlongRouteResults] = useState<AlongRouteResult[]>([]);
-
-  const handleOpenAlongRoute = () => {
-    setAlongRouteVisible(true);
-  };
-
-  const handleSelectAlongRouteCategory = async (key: string) => {
-    if (!route) return;
-    setAlongRouteCategory(key);
-    setAlongRouteLoading(true);
-    setAlongRouteError(null);
-    try {
-      const results = await searchAlongRoute(route.geometry.coordinates as [number, number][], key);
-      setAlongRouteResults(results);
-      if (results.length === 0) setAlongRouteError(null); // empty state has its own message, not an error
-    } catch (e) {
-      logError('alongRoute:search', e, { category: key });
-      setAlongRouteResults([]);
-      setAlongRouteError('Could not search along this route.');
-    } finally {
-      setAlongRouteLoading(false);
-    }
-  };
-
-  const closeAlongRoute = () => {
-    setAlongRouteVisible(false);
-    setAlongRouteCategory(null);
-    setAlongRouteResults([]);
-    setAlongRouteError(null);
-  };
+  const alongRoute = useAlongRoute(route);
 
   const handleSelectAlongRouteResult = (result: AlongRouteResult) => {
     // Replaces the destination and lets the existing route-fetch effect
     // reroute — this app doesn't support multi-stop routes, so "search
     // along the way, then reroute to stop there" is the natural fit rather
     // than inserting a waypoint into the existing leg.
-    closeAlongRoute();
+    alongRoute.close();
     setDestination(result);
     recordRecentSearch(result);
   };
@@ -919,7 +887,7 @@ function App(): React.JSX.Element {
     setRoute(null);
     setRouteError(null);
     setNavigationActive(false);
-    closeAlongRoute();
+    alongRoute.close();
   };
 
   const showRoutePanel =
@@ -1499,18 +1467,18 @@ function App(): React.JSX.Element {
           setRoutingActive(false);
         }}
         onStartNavigation={handleStartNavigation}
-        onSearchAlongRoute={handleOpenAlongRoute}
+        onSearchAlongRoute={alongRoute.open}
       />
 
       <AlongRouteSheet
-        visible={alongRouteVisible}
-        activeCategory={alongRouteCategory}
-        loading={alongRouteLoading}
-        error={alongRouteError}
-        results={alongRouteResults}
-        onSelectCategory={handleSelectAlongRouteCategory}
+        visible={alongRoute.visible}
+        activeCategory={alongRoute.category}
+        loading={alongRoute.loading}
+        error={alongRoute.error}
+        results={alongRoute.results}
+        onSelectCategory={alongRoute.selectCategory}
         onSelectResult={handleSelectAlongRouteResult}
-        onClose={closeAlongRoute}
+        onClose={alongRoute.close}
       />
 
       <ReportHazardSheet
