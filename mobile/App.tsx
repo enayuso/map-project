@@ -81,16 +81,8 @@ import AlongRouteSheet from './src/routing/AlongRouteSheet';
 import { searchAlongRoute, type AlongRouteResult } from './src/routing/searchAlongRoute';
 import ReportHazardSheet from './src/hazards/ReportHazardSheet';
 import HazardInfoCard from './src/hazards/HazardInfoCard';
-import {
-  confirmHazard,
-  deleteHazard,
-  listHazards,
-  reportHazard,
-  HAZARD_TYPE_EMOJI,
-  type HazardReport,
-  type HazardType,
-} from './src/hazards/api';
-import { addMyHazardReport, getMyHazardReports, removeMyHazardReport, type MyHazardReport } from './src/hazards/myReports';
+import { HAZARD_TYPE_EMOJI } from './src/hazards/api';
+import { useHazards } from './src/hazards/useHazards';
 import { indexSpotlightItems, subscribeToSpotlightSelection } from './src/spotlight/api';
 import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
 import { submitPOICorrection, type CorrectionField } from './src/poi-corrections/api';
@@ -220,7 +212,7 @@ function App(): React.JSX.Element {
   // only actually runs later, by which point every hook below has
   // already been called during this same render.
   const closeUtilityPanels = () => {
-    setHazardReportVisible(false);
+    hazards.closeReport();
     sharing.close();
     offlineMaps.close();
     lists.closeManager();
@@ -424,13 +416,7 @@ function App(): React.JSX.Element {
   // rather than firing a reverse-geocode request after every single one.
   const handleRegionDidChange = (e: NativeSyntheticEvent<ViewStateChangeEvent>) => {
     setCurrentZoom(e.nativeEvent.zoom);
-
-    if (hazardsVisible) {
-      // Same debounce idea as the map-pick lookup below — coalesces a
-      // flurry of small pans into one bbox refresh instead of one per frame.
-      if (hazardsDebounceRef.current) clearTimeout(hazardsDebounceRef.current);
-      hazardsDebounceRef.current = setTimeout(refreshHazards, 400);
-    }
+    hazards.notifyRegionChanged();
 
     if (!pickingMapPointFor) return;
     if (pickDebounceRef.current) clearTimeout(pickDebounceRef.current);
@@ -800,121 +786,7 @@ function App(): React.JSX.Element {
   }, [weatherFeature.weather, weatherFeature.tempUnit, favorites]);
 
   // --- Crowdsourced road hazard reporting (Waze's core idea) ---
-  // Per docs/research/10-remaining-feature-gaps.md — genuinely undocumented
-  // gap for Belize's flooding/washouts/checkpoints. hazardsVisible is a map
-  // *layer* (like measure's points), not a modal panel — it doesn't consume
-  // taps or need to be mutually exclusive with anything, so it can just
-  // stay on. hazardReportVisible (the actual report form) IS one of the
-  // dismissable utility overlays below.
-  const [hazardsVisible, setHazardsVisible] = useState(false);
-  const [hazards, setHazards] = useState<HazardReport[]>([]);
-  const [hazardReportVisible, setHazardReportVisible] = useState(false);
-  const [hazardReportSubmitting, setHazardReportSubmitting] = useState(false);
-  const [hazardReportError, setHazardReportError] = useState<string | null>(null);
-  const [selectedHazard, setSelectedHazard] = useState<HazardReport | null>(null);
-  const [hazardConfirming, setHazardConfirming] = useState(false);
-  const [hazardDeleting, setHazardDeleting] = useState(false);
-  const [myHazardReports, setMyHazardReports] = useState<MyHazardReport[]>([]);
-  const hazardsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    getMyHazardReports().then(setMyHazardReports);
-  }, []);
-
-  const refreshHazards = async () => {
-    const bounds = await mapRef.current?.getBounds(); // [west, south, east, north]
-    if (!bounds) return;
-    const [west, south, east, north] = bounds;
-    try {
-      setHazards(await listHazards({ minLat: south, maxLat: north, minLon: west, maxLon: east }));
-    } catch (e) {
-      // Still not worth a user-facing error for a background layer refresh
-      // — a failed refresh just leaves the previous set showing — but now
-      // logged so a string of these isn't invisible (see src/errors/logger.ts).
-      logError('hazards:refresh', e);
-    }
-  };
-
-  const toggleHazardsLayer = () => {
-    if (hazardsVisible) {
-      setHazardsVisible(false);
-      setHazards([]);
-    } else {
-      setHazardsVisible(true);
-      refreshHazards();
-    }
-  };
-
-  const openHazardReport = () => {
-    closeUtilityPanels();
-    setHazardReportVisible(true);
-    setHazardReportError(null);
-  };
-
-  const handleSubmitHazardReport = async (type: HazardType, note: string) => {
-    let point: { lat: number; lon: number } | null = null;
-    if (currentPosition) {
-      point = { lat: currentPosition.coords.latitude, lon: currentPosition.coords.longitude };
-    } else {
-      const center = await mapRef.current?.getCenter();
-      if (center) point = { lat: center[1], lon: center[0] };
-    }
-    if (!point) {
-      setHazardReportError('Could not determine a location.');
-      return;
-    }
-    setHazardReportSubmitting(true);
-    setHazardReportError(null);
-    try {
-      const res = await reportHazard(type, point.lat, point.lon, note || undefined);
-      await addMyHazardReport({ id: res.id, deleteToken: res.deleteToken });
-      setMyHazardReports(prev => [{ id: res.id, deleteToken: res.deleteToken }, ...prev]);
-      setHazardReportVisible(false);
-      if (!hazardsVisible) setHazardsVisible(true);
-      refreshHazards();
-    } catch (e) {
-      logError('hazards:report', e, { type });
-      setHazardReportError('Could not submit report — try again.');
-    } finally {
-      setHazardReportSubmitting(false);
-    }
-  };
-
-  const handleConfirmHazard = async () => {
-    if (!selectedHazard) return;
-    setHazardConfirming(true);
-    try {
-      await confirmHazard(selectedHazard.id);
-      setSelectedHazard(null);
-      refreshHazards();
-    } catch (e) {
-      // Still leave the card open on failure — the user can just try
-      // again — but now logged (see src/errors/logger.ts).
-      logError('hazards:confirm', e);
-    } finally {
-      setHazardConfirming(false);
-    }
-  };
-
-  const handleDeleteHazard = async () => {
-    if (!selectedHazard) return;
-    const mine = myHazardReports.find(r => r.id === selectedHazard.id);
-    if (!mine) return;
-    setHazardDeleting(true);
-    try {
-      await deleteHazard(selectedHazard.id, mine.deleteToken);
-      await removeMyHazardReport(selectedHazard.id);
-      setMyHazardReports(prev => prev.filter(r => r.id !== selectedHazard.id));
-      setSelectedHazard(null);
-      refreshHazards();
-    } catch (e) {
-      // Still leave the card open on failure — the user can just try
-      // again — but now logged (see src/errors/logger.ts).
-      logError('hazards:delete', e);
-    } finally {
-      setHazardDeleting(false);
-    }
-  };
+  const hazards = useHazards(mapRef, currentPosition, closeUtilityPanels);
 
   // --- "More" menu (2026-09-11) ---
   // Consolidates what used to be seven separate floating buttons (weather,
@@ -1187,7 +1059,7 @@ function App(): React.JSX.Element {
     offlineMaps.visible ||
     lists.managerVisible ||
     weatherFeature.visible ||
-    hazardReportVisible ||
+    hazards.reportVisible ||
     ferries.visible ||
     diveSites.active ||
     moreMenu.visible ||
@@ -1205,8 +1077,8 @@ function App(): React.JSX.Element {
       key: 'hazards',
       icon: '⚠️',
       label: 'Road hazards',
-      onPress: toggleHazardsLayer,
-      active: hazardsVisible,
+      onPress: hazards.toggleLayer,
+      active: hazards.layerVisible,
     },
     { key: 'ferry', icon: '⛴️', label: 'Ferry schedules', onPress: ferries.toggle },
     {
@@ -1351,9 +1223,9 @@ function App(): React.JSX.Element {
           </GeoJSONSource>
         )}
 
-        {hazardsVisible &&
-          hazards.map(h => (
-            <Marker key={h.id} lngLat={[h.lon, h.lat]} onPress={() => setSelectedHazard(h)}>
+        {hazards.layerVisible &&
+          hazards.list.map(h => (
+            <Marker key={h.id} lngLat={[h.lon, h.lat]} onPress={() => hazards.select(h)}>
               <View style={styles.hazardPin}>
                 <Text style={styles.hazardPinEmoji}>{HAZARD_TYPE_EMOJI[h.type]}</Text>
               </View>
@@ -1583,18 +1455,18 @@ function App(): React.JSX.Element {
           style={[
             styles.moreButton,
             { backgroundColor: colors.card },
-            (hazardsVisible || diveSites.active) && styles.moreButtonActive,
+            (hazards.layerVisible || diveSites.active) && styles.moreButtonActive,
           ]}
           onPress={moreMenu.toggle}
           accessibilityRole="button"
           accessibilityLabel="More"
-          accessibilityState={{ selected: hazardsVisible || diveSites.active }}>
+          accessibilityState={{ selected: hazards.layerVisible || diveSites.active }}>
           <Text style={styles.satelliteButtonText}>☰</Text>
         </Pressable>
       )}
 
-      {hazardsVisible &&
-        !hazardReportVisible &&
+      {hazards.layerVisible &&
+        !hazards.reportVisible &&
         !routingActive &&
         !navigationActive &&
         !meetupActive &&
@@ -1602,7 +1474,7 @@ function App(): React.JSX.Element {
           <View style={styles.reportHazardPillWrap} pointerEvents="box-none">
             <Pressable
               style={styles.reportHazardPill}
-              onPress={openHazardReport}
+              onPress={hazards.openReport}
               accessibilityRole="button"
               accessibilityLabel="Report a road hazard">
               <Text style={styles.reportHazardPillLabel}>🚧 Report hazard</Text>
@@ -1736,22 +1608,22 @@ function App(): React.JSX.Element {
       />
 
       <ReportHazardSheet
-        visible={hazardReportVisible}
-        onClose={() => setHazardReportVisible(false)}
-        locationLabel={currentPosition ? 'at your current location' : 'at the center of the map'}
-        submitting={hazardReportSubmitting}
-        error={hazardReportError}
-        onSubmit={handleSubmitHazardReport}
+        visible={hazards.reportVisible}
+        onClose={hazards.closeReport}
+        locationLabel={hazards.locationLabel}
+        submitting={hazards.reportSubmitting}
+        error={hazards.reportError}
+        onSubmit={hazards.submitReport}
       />
 
       <HazardInfoCard
-        hazard={selectedHazard}
-        isMine={!!selectedHazard && myHazardReports.some(r => r.id === selectedHazard.id)}
-        confirming={hazardConfirming}
-        deleting={hazardDeleting}
-        onClose={() => setSelectedHazard(null)}
-        onConfirm={handleConfirmHazard}
-        onDelete={handleDeleteHazard}
+        hazard={hazards.selected}
+        isMine={hazards.isSelectedMine}
+        confirming={hazards.confirming}
+        deleting={hazards.deleting}
+        onClose={() => hazards.select(null)}
+        onConfirm={hazards.confirmSelected}
+        onDelete={hazards.deleteSelected}
       />
 
       <FerryPanel
