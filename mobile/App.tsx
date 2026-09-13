@@ -53,7 +53,7 @@ import MeetupPanel, { MAX_PARTICIPANTS, PARTICIPANT_COLORS } from './src/meetup/
 import MeetupResultsSheet from './src/meetup/MeetupResultsSheet';
 import { findMeetupCandidates, type MeetupCandidate } from './src/meetup/api';
 import SharingPanel from './src/sharing/SharingPanel';
-import { createShare, getSharedPosition, stopShare, updateShare, type SharedPosition } from './src/sharing/api';
+import { useSharing } from './src/sharing/useSharing';
 import MeasureBar, { type MeasureMode } from './src/measure/MeasureBar';
 import {
   formatAreaKm2,
@@ -221,7 +221,7 @@ function App(): React.JSX.Element {
   // already been called during this same render.
   const closeUtilityPanels = () => {
     setHazardReportVisible(false);
-    setSharingPanelVisible(false);
+    sharing.close();
     offlineMaps.close();
     lists.closeManager();
     weatherFeature.close();
@@ -354,109 +354,7 @@ function App(): React.JSX.Element {
   };
 
   // --- Live location sharing (see sharing/README.md) ---
-  // A short code is the whole access model, no accounts — see that
-  // README's own reasoning. Two independent halves: sharing my own
-  // position (push, on an interval) and viewing someone else's (poll, on
-  // a separate interval) — a device can do either, both, or neither.
-  const [sharingPanelVisible, setSharingPanelVisible] = useState(false);
-  const [mySharingCode, setMySharingCode] = useState<string | null>(null);
-  const [sharingBusy, setSharingBusy] = useState(false);
-  const [sharingError, setSharingError] = useState<string | null>(null);
-  const [viewingCode, setViewingCode] = useState<string | null>(null);
-  const [viewedPosition, setViewedPosition] = useState<SharedPosition | null>(null);
-  const [viewingBusy, setViewingBusy] = useState(false);
-  const [viewingError, setViewingError] = useState<string | null>(null);
-
-  // A ref, not a direct effect dependency — currentPosition updates far
-  // more often than the 15s push interval below should actually fire, and
-  // depending on it directly would reset the interval's own timer on every
-  // GPS tick, which could starve it from ever firing at all if fixes
-  // arrive faster than 15s apart. The interval reads the *latest* position
-  // each time it ticks; only mySharingCode itself (start/stop) should
-  // recreate the interval.
-  const currentPositionRef = useRef(currentPosition);
-  useEffect(() => {
-    currentPositionRef.current = currentPosition;
-  }, [currentPosition]);
-
-  useEffect(() => {
-    if (!mySharingCode) return;
-    const interval = setInterval(() => {
-      const pos = currentPositionRef.current;
-      if (!pos) return;
-      updateShare(mySharingCode, pos.coords.latitude, pos.coords.longitude).catch(() => {
-        // The share expired/was removed server-side unexpectedly — stop
-        // pretending to still be sharing rather than retry forever.
-        setMySharingCode(null);
-      });
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [mySharingCode]);
-
-  useEffect(() => {
-    if (!viewingCode) return;
-    const poll = () => {
-      getSharedPosition(viewingCode)
-        .then(pos => {
-          setViewedPosition(pos);
-          setViewingError(null);
-        })
-        .catch(e => {
-          setViewedPosition(null);
-          setViewingError(e.message);
-        });
-    };
-    poll(); // fetch immediately, don't make the viewer wait out the first interval
-    const interval = setInterval(poll, 10000);
-    return () => clearInterval(interval);
-  }, [viewingCode]);
-
-  const handleStartSharing = async () => {
-    if (!locationEnabled) setLocationEnabled(true);
-    if (!currentPosition) {
-      setSharingError('Waiting for a GPS fix — try again in a moment.');
-      return;
-    }
-    setSharingBusy(true);
-    setSharingError(null);
-    try {
-      const { code } = await createShare(currentPosition.coords.latitude, currentPosition.coords.longitude);
-      setMySharingCode(code);
-    } catch (e) {
-      logError('sharing:start', e);
-      setSharingError('Could not start sharing — try again.');
-    } finally {
-      setSharingBusy(false);
-    }
-  };
-
-  const handleStopSharing = () => {
-    if (mySharingCode) stopShare(mySharingCode).catch(() => {}); // best-effort — it'll expire on its own regardless
-    setMySharingCode(null);
-  };
-
-  const handleStartViewing = async (rawCode: string) => {
-    const code = rawCode.trim().toUpperCase();
-    if (!code) return;
-    setViewingBusy(true);
-    setViewingError(null);
-    try {
-      const pos = await getSharedPosition(code);
-      setViewedPosition(pos);
-      setViewingCode(code);
-    } catch (e) {
-      logError('sharing:view', e);
-      setViewingError(e instanceof Error ? e.message : 'Could not find that share.');
-    } finally {
-      setViewingBusy(false);
-    }
-  };
-
-  const handleStopViewing = () => {
-    setViewingCode(null);
-    setViewedPosition(null);
-    setViewingError(null);
-  };
+  const sharing = useSharing(locationEnabled, setLocationEnabled, currentPosition, closeUtilityPanels);
 
   // --- Routing state ---
   // origin/destination carry a display name (not just LatLon) so
@@ -1060,15 +958,6 @@ function App(): React.JSX.Element {
     });
   };
 
-  const toggleSharingPanel = () => {
-    if (sharingPanelVisible) {
-      setSharingPanelVisible(false);
-    } else {
-      closeUtilityPanels();
-      setSharingPanelVisible(true);
-    }
-  };
-
   const handleSelect = (result: SearchResult) => {
     setSelectedPlace(result);
     recordRecentSearch(result);
@@ -1294,7 +1183,7 @@ function App(): React.JSX.Element {
   // keeps at most one of these four open at a time; this keeps the
   // *other* top-of-screen UI out of their way too).
   const anyUtilityPanelOpen =
-    sharingPanelVisible ||
+    sharing.panelVisible ||
     offlineMaps.visible ||
     lists.managerVisible ||
     weatherFeature.visible ||
@@ -1311,7 +1200,7 @@ function App(): React.JSX.Element {
     { key: 'weather', icon: '🌤️', label: 'Weather', onPress: weatherFeature.toggle },
     { key: 'lists', icon: '📋', label: 'Saved lists', onPress: lists.toggleManager },
     { key: 'offline', icon: '⬇️', label: 'Offline maps', onPress: offlineMaps.toggle },
-    { key: 'sharing', icon: '📡', label: 'Share my location', onPress: toggleSharingPanel },
+    { key: 'sharing', icon: '📡', label: 'Share my location', onPress: sharing.toggle },
     {
       key: 'hazards',
       icon: '⚠️',
@@ -1397,8 +1286,8 @@ function App(): React.JSX.Element {
           </Marker>
         )}
 
-        {viewedPosition && (
-          <Marker lngLat={[viewedPosition.lon, viewedPosition.lat]}>
+        {sharing.viewedPosition && (
+          <Marker lngLat={[sharing.viewedPosition.lon, sharing.viewedPosition.lat]}>
             <View style={styles.sharedLocationDot} />
           </Marker>
         )}
@@ -1777,18 +1666,18 @@ function App(): React.JSX.Element {
       />
 
       <SharingPanel
-        visible={sharingPanelVisible}
-        onClose={() => setSharingPanelVisible(false)}
-        myCode={mySharingCode}
-        sharingBusy={sharingBusy}
-        sharingError={sharingError}
-        onStartSharing={handleStartSharing}
-        onStopSharing={handleStopSharing}
-        viewedLabel={viewedPosition ? viewedPosition.label ?? 'Shared location' : null}
-        viewingBusy={viewingBusy}
-        viewingError={viewingError}
-        onStartViewing={handleStartViewing}
-        onStopViewing={handleStopViewing}
+        visible={sharing.panelVisible}
+        onClose={sharing.close}
+        myCode={sharing.myCode}
+        sharingBusy={sharing.busy}
+        sharingError={sharing.error}
+        onStartSharing={sharing.startSharing}
+        onStopSharing={sharing.stopSharing}
+        viewedLabel={sharing.viewedPosition ? sharing.viewedPosition.label ?? 'Shared location' : null}
+        viewingBusy={sharing.viewingBusy}
+        viewingError={sharing.viewingError}
+        onStartViewing={sharing.startViewing}
+        onStopViewing={sharing.stopViewing}
       />
 
       <PlaceCard
