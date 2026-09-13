@@ -26,7 +26,6 @@ import {
   type CameraRef,
   type LngLatBounds,
   type MapRef,
-  type OfflinePackStatus,
   type PressEvent,
   type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
@@ -63,15 +62,14 @@ import {
   toClosedRing,
   type LatLon as MeasureLatLon,
 } from './src/measure/geometry';
-import OfflineMapsPanel, { type PackListItem } from './src/offline/OfflineMapsPanel';
-import { deleteOfflinePack, downloadArea, listOfflinePacks, type PackMetadata } from './src/offline/api';
+import OfflineMapsPanel from './src/offline/OfflineMapsPanel';
+import { useOfflineMaps } from './src/offline/useOfflineMaps';
 import ListsManagerPanel from './src/lists/ListsManagerPanel';
 import ListViewSheet from './src/lists/ListViewSheet';
-import { createList, deleteList, getList, type ListPlace, type SharedList } from './src/lists/api';
-import { addLocalList, getLocalLists, removeLocalList, type LocalList } from './src/lists/localLists';
+import type { ListPlace } from './src/lists/api';
+import { useLists } from './src/lists/useLists';
 import WeatherWidget from './src/weather/WeatherWidget';
-import { fetchCurrentWeather, type CurrentWeather, type TempUnit } from './src/weather/api';
-import { getTempUnitPreference, setTempUnitPreference } from './src/weather/tempUnitPreference';
+import { useWeather } from './src/weather/useWeather';
 import {
   addFavorite,
   addRecentSearch,
@@ -97,16 +95,20 @@ import { indexSpotlightItems, subscribeToSpotlightSelection } from './src/spotli
 import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
 import { submitPOICorrection, type CorrectionField } from './src/poi-corrections/api';
 import FerryPanel from './src/ferries/FerryPanel';
-import { fetchFerryRoutes, type FerryRoute } from './src/ferries/api';
+import { useFerries } from './src/ferries/useFerries';
 import DiveSitesPanel from './src/dive-sites/DiveSitesPanel';
-import { fetchDiveSites, type DiveSite } from './src/dive-sites/api';
+import type { DiveSite } from './src/dive-sites/api';
+import { useDiveSites } from './src/dive-sites/useDiveSites';
 import BorderCrossingInfoCard from './src/border-crossings/BorderCrossingInfoCard';
-import { fetchBorderCrossings, type BorderCrossing } from './src/border-crossings/api';
+import type { BorderCrossing } from './src/border-crossings/api';
+import { useBorderCrossings } from './src/border-crossings/useBorderCrossings';
 import { updateWidgetData } from './src/widget/api';
 import { weatherCodeInfo } from './src/weather/weatherCodes';
 import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
+import { useMoreMenu } from './src/menu/useMoreMenu';
 import ErrorLogPanel from './src/errors/ErrorLogPanel';
-import { clearErrorLog, getErrorLog, logError, type LoggedError } from './src/errors/logger';
+import { logError } from './src/errors/logger';
+import { useErrorLog } from './src/errors/useErrorLog';
 import { useTheme } from './src/theme/ThemeContext';
 import { formatTemp } from './src/weather/api';
 
@@ -207,6 +209,28 @@ function App(): React.JSX.Element {
   const { colors, scheme, preference, cyclePreference } = useTheme();
   const cameraRef = useRef<CameraRef>(null);
   const mapRef = useRef<MapRef>(null);
+
+  // These are quick, dismissable utility overlays (unlike Directions/Meet
+  // Up/Measure's full "modes") — sharing this one helper keeps them from
+  // ever rendering on top of each other or the plain search box, which
+  // they'd otherwise do since each has its own independent button.
+  // Defined early (before any of the panel hooks below, several of which
+  // take it as a constructor argument) — safe to reference those hooks'
+  // own close() methods here regardless, since this function's *body*
+  // only actually runs later, by which point every hook below has
+  // already been called during this same render.
+  const closeUtilityPanels = () => {
+    setHazardReportVisible(false);
+    setSharingPanelVisible(false);
+    offlineMaps.close();
+    lists.closeManager();
+    weatherFeature.close();
+    ferries.close();
+    diveSites.close();
+    moreMenu.close();
+    errorLog.close();
+  };
+
   const [selectedPlace, setSelectedPlace] = useState<SearchResult | null>(null);
 
   // --- Basemap toggle (satellite/hybrid) ---
@@ -235,17 +259,10 @@ function App(): React.JSX.Element {
   // (fixed, real-world locations), so they're just always-visible map
   // markers rather than needing their own toggle button/panel; fetched
   // once on mount like favorites/recentSearches above.
-  const [borderCrossings, setBorderCrossings] = useState<BorderCrossing[]>([]);
-  const [selectedBorderCrossing, setSelectedBorderCrossing] = useState<BorderCrossing | null>(null);
-
-  useEffect(() => {
-    fetchBorderCrossings()
-      .then(setBorderCrossings)
-      .catch(() => setBorderCrossings([])); // silent — a missing info card isn't worth a user-facing error
-  }, []);
+  const borderCrossings = useBorderCrossings();
 
   const handleBorderCrossingDirections = (crossing: BorderCrossing) => {
-    setSelectedBorderCrossing(null);
+    borderCrossings.select(null);
     startDirectionsTo({
       id: `border-${crossing.id}`,
       name: crossing.name,
@@ -848,174 +865,24 @@ function App(): React.JSX.Element {
   // pack system, not custom online/offline-switching logic — once a pack
   // covers the current view, the native SDK serves from it automatically
   // whenever a live tile request fails.
-  const [offlinePanelVisible, setOfflinePanelVisible] = useState(false);
-  const [offlineLabel, setOfflineLabel] = useState('');
-  const [offlineDownloading, setOfflineDownloading] = useState(false);
-  const [offlineDownloadStatus, setOfflineDownloadStatus] = useState<OfflinePackStatus | null>(null);
-  const [offlineDownloadError, setOfflineDownloadError] = useState<string | null>(null);
-  const [offlinePacks, setOfflinePacks] = useState<PackListItem[]>([]);
-
-  const refreshOfflinePacks = async () => {
-    const packs = await listOfflinePacks();
-    const items = await Promise.all(
-      packs.map(async p => {
-        const status = await p.status();
-        return {
-          id: p.id,
-          metadata: p.metadata as PackMetadata,
-          sizeBytes: status.completedResourceSize,
-        };
-      }),
-    );
-    setOfflinePacks(items);
-  };
-
-  useEffect(() => {
-    if (offlinePanelVisible) refreshOfflinePacks();
-  }, [offlinePanelVisible]);
-
-  const handleDownloadCurrentArea = async () => {
-    const bounds = await mapRef.current?.getBounds();
-    if (!bounds) {
-      setOfflineDownloadError('Could not read the current map view — try again.');
-      return;
-    }
-    const zoom = (await mapRef.current?.getZoom()) ?? INITIAL_ZOOM;
-    // A little wider than the exact current zoom, so a modest zoom-out
-    // still has something to show offline, not just the one exact level.
-    const minZoom = Math.max(MIN_ZOOM, Math.floor(zoom) - 2);
-
-    setOfflineDownloading(true);
-    setOfflineDownloadError(null);
-    setOfflineDownloadStatus(null);
-    try {
-      await downloadArea(
-        bounds,
-        minZoom,
-        showSatellite ? 'hybrid' : 'basic',
-        offlineLabel.trim(),
-        status => {
-          setOfflineDownloadStatus(status);
-          if (status.state === 'complete') {
-            setOfflineDownloading(false);
-            setOfflineLabel('');
-            refreshOfflinePacks();
-          }
-        },
-        message => {
-          setOfflineDownloadError(message);
-          setOfflineDownloading(false);
-        },
-      );
-    } catch (e) {
-      logError('offline:download', e);
-      setOfflineDownloadError(e instanceof Error ? e.message : 'Could not start download.');
-      setOfflineDownloading(false);
-    }
-  };
-
-  const handleDeleteOfflinePack = async (id: string) => {
-    await deleteOfflinePack(id);
-    refreshOfflinePacks();
-  };
+  const offlineMaps = useOfflineMaps(mapRef, closeUtilityPanels, showSatellite, MIN_ZOOM, INITIAL_ZOOM);
 
   // --- Shareable saved-place lists (Naver's Dec 2022 favorites-folder upgrade) ---
   // Additive on top of the existing flat favorites (favorites.ts) — a list
   // is a named, shareable subset of your favorites, not a replacement for
   // the ★ flow. Same short-code backend as location sharing (sharing/),
   // different resource (src/lists/api.ts).
-  const [listsManagerVisible, setListsManagerVisible] = useState(false);
-  const [localLists, setLocalLists] = useState<LocalList[]>([]);
-  const [listCreating, setListCreating] = useState(false);
-  const [listViewCodeInput, setListViewCodeInput] = useState('');
-  const [listViewingBusy, setListViewingBusy] = useState(false);
-  const [listViewingError, setListViewingError] = useState<string | null>(null);
-  const [viewedList, setViewedList] = useState<SharedList | null>(null);
-  const [listViewSheetVisible, setListViewSheetVisible] = useState(false);
-
-  useEffect(() => {
-    getLocalLists().then(setLocalLists);
-  }, []);
-
-  const handleCreateList = async (label: string, placeIds: string[]) => {
-    const places: ListPlace[] = favorites
-      .filter(f => placeIds.includes(f.id))
-      .map(f => ({ id: f.id, name: f.name, subtitle: f.subtitle, lat: f.lat, lon: f.lon }));
-    setListCreating(true);
-    try {
-      const { code } = await createList(label, places);
-      const updated = await addLocalList({ code, label, placeIds });
-      setLocalLists(updated);
-    } catch (e) {
-      logError('lists:create', e);
-      Alert.alert('Could not create the list', 'Please try again.');
-    } finally {
-      setListCreating(false);
-    }
-  };
-
-  const handleDeleteLocalList = async (code: string) => {
-    deleteList(code).catch(() => {}); // best-effort — a local-only removal still un-shares it from this device's point of view even if the network call fails
-    const updated = await removeLocalList(code);
-    setLocalLists(updated);
-  };
-
-  const handleViewListCode = async () => {
-    setListViewingBusy(true);
-    setListViewingError(null);
-    try {
-      const list = await getList(listViewCodeInput);
-      setViewedList(list);
-      setListViewSheetVisible(true);
-      setListsManagerVisible(false);
-    } catch (e) {
-      logError('lists:view', e);
-      setListViewingError(e instanceof Error ? e.message : 'Could not find that list.');
-    } finally {
-      setListViewingBusy(false);
-    }
-  };
+  const lists = useLists(favorites, closeUtilityPanels);
 
   const handleSelectListPlace = (place: ListPlace) => {
-    setListViewSheetVisible(false);
+    lists.closeViewSheet();
     setSelectedPlace({ ...place, kind: 'poi' });
     cameraRef.current?.flyTo({ center: [place.lon, place.lat], zoom: 16, duration: 1200 });
   };
 
   // --- Weather (low-effort polish, not a functional gap — see
   // docs/research/09-kakao-naver-feature-audit.md) ---
-  const [weatherVisible, setWeatherVisible] = useState(false);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-  const [weather, setWeather] = useState<CurrentWeather | null>(null);
-  const [weatherError, setWeatherError] = useState<string | null>(null);
-  const [tempUnit, setTempUnit] = useState<TempUnit>('C');
-
-  useEffect(() => {
-    getTempUnitPreference().then(setTempUnit);
-  }, []);
-
-  const handleToggleTempUnit = () => {
-    const next: TempUnit = tempUnit === 'C' ? 'F' : 'C';
-    setTempUnit(next);
-    setTempUnitPreference(next);
-  };
-
-  const handleRefreshWeather = async () => {
-    setWeatherLoading(true);
-    setWeatherError(null);
-    try {
-      const center = await mapRef.current?.getCenter();
-      if (!center) throw new Error('no map center');
-      const [lon, lat] = center;
-      setWeather(await fetchCurrentWeather(lat, lon));
-    } catch (e) {
-      logError('weather:refresh', e);
-      setWeather(null);
-      setWeatherError('Could not check the weather — try again.');
-    } finally {
-      setWeatherLoading(false);
-    }
-  };
+  const weatherFeature = useWeather(mapRef, closeUtilityPanels);
 
   // --- iOS home screen widget (2026-09-11) ---
   // One-way mirror into a shared App Group store — see src/widget/api.ts's
@@ -1023,14 +890,16 @@ function App(): React.JSX.Element {
   // favorites change, same "just keep it in sync" approach as the
   // Spotlight indexing effect above.
   useEffect(() => {
-    const info = weather ? weatherCodeInfo(weather.weatherCode) : null;
+    const info = weatherFeature.weather ? weatherCodeInfo(weatherFeature.weather.weatherCode) : null;
     updateWidgetData({
       weatherEmoji: info?.emoji,
       weatherLabel: info?.label,
-      tempDisplay: weather ? formatTemp(weather.tempC, tempUnit) : undefined,
+      tempDisplay: weatherFeature.weather
+        ? formatTemp(weatherFeature.weather.tempC, weatherFeature.tempUnit)
+        : undefined,
       favorites: favorites.slice(0, 3).map(f => ({ name: f.name, subtitle: f.subtitle })),
     });
-  }, [weather, tempUnit, favorites]);
+  }, [weatherFeature.weather, weatherFeature.tempUnit, favorites]);
 
   // --- Crowdsourced road hazard reporting (Waze's core idea) ---
   // Per docs/research/10-remaining-feature-gaps.md — genuinely undocumented
@@ -1149,22 +1018,6 @@ function App(): React.JSX.Element {
     }
   };
 
-  // These four are quick, dismissable utility overlays (unlike Directions/
-  // Meet Up/Measure's full "modes") — sharing this one helper keeps them
-  // from ever rendering on top of each other or the plain search box,
-  // which they'd otherwise do since each has its own independent button.
-  const closeUtilityPanels = () => {
-    setHazardReportVisible(false);
-    setSharingPanelVisible(false);
-    setOfflinePanelVisible(false);
-    setListsManagerVisible(false);
-    setWeatherVisible(false);
-    setFerryPanelVisible(false);
-    setDiveSitesActive(false);
-    setMoreMenuVisible(false);
-    setErrorLogVisible(false);
-  };
-
   // --- "More" menu (2026-09-11) ---
   // Consolidates what used to be seven separate floating buttons (weather,
   // saved lists, offline maps, live-location sharing, road hazards, ferry
@@ -1172,41 +1025,13 @@ function App(): React.JSX.Element {
   // comment for why (real Kakao/Naver screenshots both keep the map's
   // right edge to 3-4 buttons, never seven-plus). Each row below just
   // calls the same toggle*() function its old standalone button used to.
-  const [moreMenuVisible, setMoreMenuVisible] = useState(false);
-
-  const toggleMoreMenu = () => {
-    if (moreMenuVisible) {
-      setMoreMenuVisible(false);
-    } else {
-      closeUtilityPanels();
-      setMoreMenuVisible(true);
-    }
-  };
+  const moreMenu = useMoreMenu(closeUtilityPanels);
 
   // --- Error log (2026-09-11) ---
-  // Reached from the More menu — see src/errors/logger.ts's header comment
-  // for why this exists (the engineering-audit finding that the app had
-  // zero error visibility once shipped). Loads fresh from storage each
-  // time it opens rather than keeping a live-updating subscription — this
-  // is a debug tool opened rarely, not something that needs to reflect an
-  // error logged one second after opening it.
-  const [errorLogVisible, setErrorLogVisible] = useState(false);
-  const [errorLogEntries, setErrorLogEntries] = useState<LoggedError[]>([]);
-
-  const toggleErrorLog = () => {
-    if (errorLogVisible) {
-      setErrorLogVisible(false);
-    } else {
-      closeUtilityPanels();
-      setErrorLogVisible(true);
-      getErrorLog().then(setErrorLogEntries);
-    }
-  };
-
-  const handleClearErrorLog = () => {
-    clearErrorLog();
-    setErrorLogEntries([]);
-  };
+  // Reached from the More menu — see src/errors/useErrorLog.ts /
+  // logger.ts's header comments for why this exists and why it's its own
+  // hook now.
+  const errorLog = useErrorLog(closeUtilityPanels);
 
   // --- Ferry/water-taxi schedules (2026-09-11) ---
   // Per docs/research/12-ferry-dive-site-data-sourcing.md: no API/feed
@@ -1214,57 +1039,17 @@ function App(): React.JSX.Element {
   // hand-maintained content, fetched once per app session and cached in
   // state rather than re-fetched on every open (it changes on a
   // months-long cadence, not per-use).
-  const [ferryPanelVisible, setFerryPanelVisible] = useState(false);
-  const [ferryRoutes, setFerryRoutes] = useState<FerryRoute[]>([]);
-  const [ferryLoading, setFerryLoading] = useState(false);
-  const [ferryError, setFerryError] = useState<string | null>(null);
-
-  const toggleFerryPanel = () => {
-    if (ferryPanelVisible) {
-      setFerryPanelVisible(false);
-      return;
-    }
-    closeUtilityPanels();
-    setFerryPanelVisible(true);
-    if (ferryRoutes.length === 0) {
-      setFerryLoading(true);
-      setFerryError(null);
-      fetchFerryRoutes()
-        .then(setFerryRoutes)
-        .catch(() => setFerryError('Could not load ferry routes.'))
-        .finally(() => setFerryLoading(false));
-    }
-  };
+  const ferries = useFerries(closeUtilityPanels);
 
   // --- Dive sites (2026-09-11) ---
   // Same "no structured source exists, this is curated" situation as
   // ferries above — see the same research doc. One toggle controls both
   // the map markers and the list sheet together (unlike hazards, there's
   // no independent live layer here worth keeping open past the panel).
-  const [diveSitesActive, setDiveSitesActive] = useState(false);
-  const [diveSites, setDiveSites] = useState<DiveSite[]>([]);
-  const [diveSitesLoading, setDiveSitesLoading] = useState(false);
-  const [diveSitesError, setDiveSitesError] = useState<string | null>(null);
-
-  const toggleDiveSites = () => {
-    if (diveSitesActive) {
-      setDiveSitesActive(false);
-      return;
-    }
-    closeUtilityPanels();
-    setDiveSitesActive(true);
-    if (diveSites.length === 0) {
-      setDiveSitesLoading(true);
-      setDiveSitesError(null);
-      fetchDiveSites()
-        .then(setDiveSites)
-        .catch(() => setDiveSitesError('Could not load dive sites.'))
-        .finally(() => setDiveSitesLoading(false));
-    }
-  };
+  const diveSites = useDiveSites(closeUtilityPanels);
 
   const handleDiveSiteDirections = (site: DiveSite) => {
-    setDiveSitesActive(false);
+    diveSites.close();
     startDirectionsTo({
       id: `dive-${site.id}`,
       name: site.name,
@@ -1281,34 +1066,6 @@ function App(): React.JSX.Element {
     } else {
       closeUtilityPanels();
       setSharingPanelVisible(true);
-    }
-  };
-
-  const toggleOfflinePanel = () => {
-    if (offlinePanelVisible) {
-      setOfflinePanelVisible(false);
-    } else {
-      closeUtilityPanels();
-      setOfflinePanelVisible(true);
-    }
-  };
-
-  const toggleListsManager = () => {
-    if (listsManagerVisible) {
-      setListsManagerVisible(false);
-    } else {
-      closeUtilityPanels();
-      setListsManagerVisible(true);
-    }
-  };
-
-  const toggleWeather = () => {
-    if (weatherVisible) {
-      setWeatherVisible(false);
-    } else {
-      closeUtilityPanels();
-      setWeatherVisible(true);
-      handleRefreshWeather();
     }
   };
 
@@ -1538,22 +1295,22 @@ function App(): React.JSX.Element {
   // *other* top-of-screen UI out of their way too).
   const anyUtilityPanelOpen =
     sharingPanelVisible ||
-    offlinePanelVisible ||
-    listsManagerVisible ||
-    weatherVisible ||
+    offlineMaps.visible ||
+    lists.managerVisible ||
+    weatherFeature.visible ||
     hazardReportVisible ||
-    ferryPanelVisible ||
-    diveSitesActive ||
-    moreMenuVisible ||
-    errorLogVisible;
+    ferries.visible ||
+    diveSites.active ||
+    moreMenu.visible ||
+    errorLog.visible;
 
   const appearanceLabel = preference === 'system' ? 'System' : preference === 'light' ? 'Light' : 'Dark';
 
   const moreMenuItems: MoreMenuItem[] = [
     { key: 'appearance', icon: '🌓', label: `Appearance: ${appearanceLabel}`, onPress: cyclePreference },
-    { key: 'weather', icon: '🌤️', label: 'Weather', onPress: toggleWeather },
-    { key: 'lists', icon: '📋', label: 'Saved lists', onPress: toggleListsManager },
-    { key: 'offline', icon: '⬇️', label: 'Offline maps', onPress: toggleOfflinePanel },
+    { key: 'weather', icon: '🌤️', label: 'Weather', onPress: weatherFeature.toggle },
+    { key: 'lists', icon: '📋', label: 'Saved lists', onPress: lists.toggleManager },
+    { key: 'offline', icon: '⬇️', label: 'Offline maps', onPress: offlineMaps.toggle },
     { key: 'sharing', icon: '📡', label: 'Share my location', onPress: toggleSharingPanel },
     {
       key: 'hazards',
@@ -1562,15 +1319,15 @@ function App(): React.JSX.Element {
       onPress: toggleHazardsLayer,
       active: hazardsVisible,
     },
-    { key: 'ferry', icon: '⛴️', label: 'Ferry schedules', onPress: toggleFerryPanel },
+    { key: 'ferry', icon: '⛴️', label: 'Ferry schedules', onPress: ferries.toggle },
     {
       key: 'dive',
       icon: '🤿',
       label: 'Dive sites',
-      onPress: toggleDiveSites,
-      active: diveSitesActive,
+      onPress: diveSites.toggle,
+      active: diveSites.active,
     },
-    { key: 'errorLog', icon: '🐞', label: 'Error log', onPress: toggleErrorLog },
+    { key: 'errorLog', icon: '🐞', label: 'Error log', onPress: errorLog.toggle },
   ];
 
   return (
@@ -1714,13 +1471,13 @@ function App(): React.JSX.Element {
             </Marker>
           ))}
 
-        {ferryPanelVisible &&
+        {ferries.visible &&
           // Dedupe by name — the same stop (e.g. "San Pedro") appears
           // across several routes, and each should only get one pin. Not
           // `new Map(...)` — this file imports MapLibre's own `Map`
           // component under that exact name, which shadows the built-in
           // JS Map class (see src/hazards wiring for the same gotcha).
-          ferryRoutes
+          ferries.routes
             .flatMap(r => r.stops)
             .filter((stop, i, all) => all.findIndex(s => s.name === stop.name) === i)
             .map(stop => (
@@ -1731,8 +1488,8 @@ function App(): React.JSX.Element {
               </Marker>
             ))}
 
-        {diveSitesActive &&
-          diveSites.map(site => (
+        {diveSites.active &&
+          diveSites.sites.map(site => (
             <Marker key={site.id} lngLat={[site.lon, site.lat]} onPress={() => handleDiveSiteDirections(site)}>
               <View style={styles.divePin}>
                 <Text style={styles.divePinEmoji}>🤿</Text>
@@ -1740,11 +1497,11 @@ function App(): React.JSX.Element {
             </Marker>
           ))}
 
-        {borderCrossings.map(crossing => (
+        {borderCrossings.crossings.map(crossing => (
           <Marker
             key={crossing.id}
             lngLat={[crossing.lon, crossing.lat]}
-            onPress={() => setSelectedBorderCrossing(crossing)}>
+            onPress={() => borderCrossings.select(crossing)}>
             <View style={styles.borderPin}>
               <Text style={styles.borderPinEmoji}>🛂</Text>
             </View>
@@ -1937,12 +1694,12 @@ function App(): React.JSX.Element {
           style={[
             styles.moreButton,
             { backgroundColor: colors.card },
-            (hazardsVisible || diveSitesActive) && styles.moreButtonActive,
+            (hazardsVisible || diveSites.active) && styles.moreButtonActive,
           ]}
-          onPress={toggleMoreMenu}
+          onPress={moreMenu.toggle}
           accessibilityRole="button"
           accessibilityLabel="More"
-          accessibilityState={{ selected: hazardsVisible || diveSitesActive }}>
+          accessibilityState={{ selected: hazardsVisible || diveSites.active }}>
           <Text style={styles.satelliteButtonText}>☰</Text>
         </Pressable>
       )}
@@ -1964,59 +1721,59 @@ function App(): React.JSX.Element {
           </View>
         )}
 
-      <MoreMenu visible={moreMenuVisible} onClose={() => setMoreMenuVisible(false)} items={moreMenuItems} />
+      <MoreMenu visible={moreMenu.visible} onClose={moreMenu.close} items={moreMenuItems} />
 
       <ErrorLogPanel
-        visible={errorLogVisible}
-        onClose={() => setErrorLogVisible(false)}
-        entries={errorLogEntries}
-        onClear={handleClearErrorLog}
+        visible={errorLog.visible}
+        onClose={errorLog.close}
+        entries={errorLog.entries}
+        onClear={errorLog.clear}
       />
 
       <WeatherWidget
-        visible={weatherVisible}
-        onClose={() => setWeatherVisible(false)}
-        loading={weatherLoading}
-        weather={weather}
-        error={weatherError}
-        onRefresh={handleRefreshWeather}
-        unit={tempUnit}
-        onToggleUnit={handleToggleTempUnit}
+        visible={weatherFeature.visible}
+        onClose={weatherFeature.close}
+        loading={weatherFeature.loading}
+        weather={weatherFeature.weather}
+        error={weatherFeature.error}
+        onRefresh={weatherFeature.refresh}
+        unit={weatherFeature.tempUnit}
+        onToggleUnit={weatherFeature.toggleTempUnit}
       />
 
       <ListsManagerPanel
-        visible={listsManagerVisible}
-        onClose={() => setListsManagerVisible(false)}
+        visible={lists.managerVisible}
+        onClose={lists.closeManager}
         favorites={favorites}
-        localLists={localLists}
-        creating={listCreating}
-        onCreateList={handleCreateList}
-        onDeleteList={handleDeleteLocalList}
-        viewCodeInput={listViewCodeInput}
-        onChangeViewCodeInput={setListViewCodeInput}
-        onViewCode={handleViewListCode}
-        viewingBusy={listViewingBusy}
-        viewingError={listViewingError}
+        localLists={lists.localLists}
+        creating={lists.creating}
+        onCreateList={lists.createList}
+        onDeleteList={lists.deleteLocalList}
+        viewCodeInput={lists.viewCodeInput}
+        onChangeViewCodeInput={lists.setViewCodeInput}
+        onViewCode={lists.viewListCode}
+        viewingBusy={lists.viewingBusy}
+        viewingError={lists.viewingError}
       />
 
       <ListViewSheet
-        visible={listViewSheetVisible}
-        list={viewedList}
+        visible={lists.viewSheetVisible}
+        list={lists.viewedList}
         onSelect={handleSelectListPlace}
-        onClose={() => setListViewSheetVisible(false)}
+        onClose={lists.closeViewSheet}
       />
 
       <OfflineMapsPanel
-        visible={offlinePanelVisible}
-        onClose={() => setOfflinePanelVisible(false)}
-        label={offlineLabel}
-        onChangeLabel={setOfflineLabel}
-        onDownloadCurrentArea={handleDownloadCurrentArea}
-        downloading={offlineDownloading}
-        downloadStatus={offlineDownloadStatus}
-        downloadError={offlineDownloadError}
-        packs={offlinePacks}
-        onDeletePack={handleDeleteOfflinePack}
+        visible={offlineMaps.visible}
+        onClose={offlineMaps.close}
+        label={offlineMaps.label}
+        onChangeLabel={offlineMaps.setLabel}
+        onDownloadCurrentArea={offlineMaps.downloadCurrentArea}
+        downloading={offlineMaps.downloading}
+        downloadStatus={offlineMaps.downloadStatus}
+        downloadError={offlineMaps.downloadError}
+        packs={offlineMaps.packs}
+        onDeletePack={offlineMaps.deletePack}
       />
 
       <SharingPanel
@@ -2109,25 +1866,25 @@ function App(): React.JSX.Element {
       />
 
       <FerryPanel
-        visible={ferryPanelVisible}
-        loading={ferryLoading}
-        error={ferryError}
-        routes={ferryRoutes}
-        onClose={() => setFerryPanelVisible(false)}
+        visible={ferries.visible}
+        loading={ferries.loading}
+        error={ferries.error}
+        routes={ferries.routes}
+        onClose={ferries.close}
       />
 
       <DiveSitesPanel
-        visible={diveSitesActive}
-        loading={diveSitesLoading}
-        error={diveSitesError}
-        sites={diveSites}
-        onClose={() => setDiveSitesActive(false)}
+        visible={diveSites.active}
+        loading={diveSites.loading}
+        error={diveSites.error}
+        sites={diveSites.sites}
+        onClose={diveSites.close}
         onDirections={handleDiveSiteDirections}
       />
 
       <BorderCrossingInfoCard
-        crossing={selectedBorderCrossing}
-        onClose={() => setSelectedBorderCrossing(null)}
+        crossing={borderCrossings.selected}
+        onClose={() => borderCrossings.select(null)}
         onDirections={handleBorderCrossingDirections}
       />
     </View>
