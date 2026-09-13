@@ -48,21 +48,16 @@ import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 import AttributionFooter from './src/attribution/AttributionFooter';
 import CategoryBar from './src/categories/CategoryBar';
 import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
-import { categoryLabel, formatDistanceKm, haversineKm, type NearbyResult } from './src/categories/categories';
+import { categoryLabel, haversineKm, type NearbyResult } from './src/categories/categories';
 import MeetupPanel, { PARTICIPANT_COLORS } from './src/meetup/MeetupPanel';
 import MeetupResultsSheet from './src/meetup/MeetupResultsSheet';
 import type { MeetupCandidate } from './src/meetup/api';
 import { useMeetup } from './src/meetup/useMeetup';
 import SharingPanel from './src/sharing/SharingPanel';
 import { useSharing } from './src/sharing/useSharing';
-import MeasureBar, { type MeasureMode } from './src/measure/MeasureBar';
-import {
-  formatAreaKm2,
-  polygonAreaKm2,
-  polylineLengthKm,
-  toClosedRing,
-  type LatLon as MeasureLatLon,
-} from './src/measure/geometry';
+import MeasureBar from './src/measure/MeasureBar';
+import { toClosedRing } from './src/measure/geometry';
+import { useMeasure } from './src/measure/useMeasure';
 import OfflineMapsPanel from './src/offline/OfflineMapsPanel';
 import { useOfflineMaps } from './src/offline/useOfflineMaps';
 import ListsManagerPanel from './src/lists/ListsManagerPanel';
@@ -621,7 +616,7 @@ function App(): React.JSX.Element {
       meetup.activate();
       closeCategoryBrowsing();
       if (routingActive) toggleRouting(); // mutually exclusive top-level modes
-      if (measureActive) toggleMeasure();
+      if (measure.active) toggleMeasure();
       setSelectedPlace(null); // a stale card from earlier browsing shouldn't linger over this
     }
   };
@@ -641,33 +636,18 @@ function App(): React.JSX.Element {
   // PC-only there. Built here anyway per the original request, following
   // the same tap-to-place interaction for both modes since there's no
   // mobile reference for area to diverge from.
-  const [measureActive, setMeasureActive] = useState(false);
-  const [measureMode, setMeasureMode] = useState<MeasureMode>('distance');
-  const [measurePoints, setMeasurePoints] = useState<MeasureLatLon[]>([]);
+  const measure = useMeasure();
 
   const toggleMeasure = () => {
-    if (measureActive) {
-      setMeasureActive(false);
-      setMeasurePoints([]);
+    if (measure.active) {
+      measure.deactivate();
     } else {
-      setMeasureActive(true);
+      measure.activate();
       closeCategoryBrowsing();
       if (routingActive) toggleRouting(); // mutually exclusive top-level modes
       if (meetup.active) toggleMeetup();
-      setMeasureMode('distance');
-      setMeasurePoints([]);
     }
   };
-
-  const handleChangeMeasureMode = (mode: MeasureMode) => {
-    setMeasureMode(mode);
-    setMeasurePoints([]); // a path doesn't carry over meaningfully between the two modes
-  };
-
-  const measureTotalLabel =
-    measureMode === 'distance'
-      ? formatDistanceKm(polylineLengthKm(measurePoints))
-      : formatAreaKm2(polygonAreaKm2(measurePoints));
 
   // --- Offline maps (Phase 5) ---
   // See src/offline/api.ts's header comment for why this is just a thin
@@ -813,9 +793,9 @@ function App(): React.JSX.Element {
     // behind its back via the plain-tap path below.
     if (pickingMapPointFor) return;
 
-    if (measureActive) {
+    if (measure.active) {
       const [lon, lat] = event.nativeEvent.lngLat;
-      setMeasurePoints(prev => [...prev, { lat, lon }]);
+      measure.addPoint(lat, lon);
       return;
     }
 
@@ -921,7 +901,7 @@ function App(): React.JSX.Element {
       setRoutingActive(true);
       closeCategoryBrowsing(); // category chips don't mean anything mid-directions
       if (meetup.active) toggleMeetup(); // mutually exclusive top-level modes
-      if (measureActive) toggleMeasure();
+      if (measure.active) toggleMeasure();
       setActiveRouteField('origin');
       // If a place is already selected (from search or a map tap), use it
       // as the destination right away — the common "look at a place, then
@@ -1109,10 +1089,10 @@ function App(): React.JSX.Element {
             </Marker>
           ))}
 
-        {measureActive && measureMode === 'distance' && measurePoints.length > 1 && (
+        {measure.active && measure.mode === 'distance' && measure.points.length > 1 && (
           <GeoJSONSource
             id="measure-line"
-            data={{ type: 'LineString', coordinates: measurePoints.map(p => [p.lon, p.lat]) }}>
+            data={{ type: 'LineString', coordinates: measure.points.map(p => [p.lon, p.lat]) }}>
             <Layer
               id="measure-line-layer"
               type="line"
@@ -1122,17 +1102,17 @@ function App(): React.JSX.Element {
           </GeoJSONSource>
         )}
 
-        {measureActive && measureMode === 'area' && measurePoints.length > 2 && (
+        {measure.active && measure.mode === 'area' && measure.points.length > 2 && (
           <GeoJSONSource
             id="measure-polygon"
-            data={{ type: 'Polygon', coordinates: [toClosedRing(measurePoints)] }}>
+            data={{ type: 'Polygon', coordinates: [toClosedRing(measure.points)] }}>
             <Layer id="measure-polygon-fill" type="fill" paint={{ 'fill-color': '#d9773f', 'fill-opacity': 0.25 }} />
             <Layer id="measure-polygon-outline" type="line" paint={{ 'line-color': '#d9773f', 'line-width': 3 }} />
           </GeoJSONSource>
         )}
 
-        {measureActive &&
-          measurePoints.map((p, i) => (
+        {measure.active &&
+          measure.points.map((p, i) => (
             <Marker key={i} lngLat={[p.lon, p.lat]}>
               <View style={styles.measureVertexDot} />
             </Marker>
@@ -1198,7 +1178,7 @@ function App(): React.JSX.Element {
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
 
-      {!routingActive && !navigationActive && !meetup.active && !measureActive && !anyUtilityPanelOpen && (
+      {!routingActive && !navigationActive && !meetup.active && !measure.active && !anyUtilityPanelOpen && (
         <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
       )}
 
@@ -1229,14 +1209,14 @@ function App(): React.JSX.Element {
         onClose={meetup.closeResults}
       />
 
-      {measureActive && (
+      {measure.active && (
         <MeasureBar
-          mode={measureMode}
-          onChangeMode={handleChangeMeasureMode}
-          pointCount={measurePoints.length}
-          totalLabel={measureTotalLabel}
-          onUndo={() => setMeasurePoints(prev => prev.slice(0, -1))}
-          onClear={() => setMeasurePoints([])}
+          mode={measure.mode}
+          onChangeMode={measure.changeMode}
+          pointCount={measure.points.length}
+          totalLabel={measure.totalLabel}
+          onUndo={measure.undo}
+          onClear={measure.clear}
           onClose={toggleMeasure}
         />
       )}
@@ -1270,11 +1250,11 @@ function App(): React.JSX.Element {
         />
       )}
 
-      {!routingActive && !navigationActive && !meetup.active && !measureActive && !anyUtilityPanelOpen && (
+      {!routingActive && !navigationActive && !meetup.active && !measure.active && !anyUtilityPanelOpen && (
         <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
       )}
 
-      {!routingActive && !navigationActive && !meetup.active && !measureActive && !anyUtilityPanelOpen && (
+      {!routingActive && !navigationActive && !meetup.active && !measure.active && !anyUtilityPanelOpen && (
         <View style={styles.directionsButtonWrap}>
           <Pressable
             style={[styles.directionsButton, { backgroundColor: colors.textPrimary }]}
@@ -1396,7 +1376,7 @@ function App(): React.JSX.Element {
         !routingActive &&
         !navigationActive &&
         !meetup.active &&
-        !measureActive && (
+        !measure.active && (
           <View style={styles.reportHazardPillWrap} pointerEvents="box-none">
             <Pressable
               style={styles.reportHazardPill}
