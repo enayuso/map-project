@@ -16,7 +16,7 @@ import { useTheme } from '../theme/ThemeContext';
 // VoiceOver labels describe what a row does in words — strip the leading
 // emoji glyph callers put in visible labels (extraShortcuts, section
 // headers) rather than reading it out character-by-character.
-const stripLeadingEmoji = (label: string) => label.replace(/^[^\p{L}\p{N}]+/u, '');
+export const stripLeadingEmoji = (label: string) => label.replace(/^[^\p{L}\p{N}]+/u, '');
 
 const DEBOUNCE_MS = 300;
 // Guards against the exact tap that opens the dropdown also closing it —

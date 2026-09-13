@@ -294,6 +294,28 @@ Root cause, confirmed against a real documented failure class rather than assume
 
 **Verified**: reproduced the exact freeze sequence, applied the fix, then repeated the identical sequence twice more — both times the dropdown now closes correctly, focus advances, and every other button on screen stays responsive throughout. Ran the full Meet Up flow (both participants via current-location, then "Find a fair place to meet") end-to-end with no anomaly. TypeScript/ESLint clean.
 
+### Automated tests (2026-09-13)
+
+The other half of the "add automated tests" audit finding — the sharing service's own pytest suite is documented in `sharing/README.md`; this is the mobile side. Before this, `__tests__/App.test.tsx` was the only test file anywhere in the app, and — discovered running it for the first time while setting this up, not assumed — it was actually **silently failing to even run**, for two independent reasons that predate everything else in this section:
+
+1. `@maplibre/maplibre-react-native`'s CommonJS build re-exports a source `.ts` file straight through with no transpilation, which the RN Jest preset's default `transformIgnorePatterns` doesn't know to transform (it only allows-lists `react-native`/`@react-native(-community)?` packages). Result: `SyntaxError: Cannot use import statement outside a module`, before the test could even reach the point of rendering anything.
+2. Once that was fixed, the *real* native module (`MLRNCameraModule` etc.) doesn't exist in Jest's plain Node environment — an "app renders" smoke test can't actually instantiate a real native map view no matter what config is tweaked. Needed a real manual mock (`__mocks__/@maplibre/maplibre-react-native.js`, plain `View` stand-ins for `Map`/`Camera`/`Marker`/etc., a no-op `OfflineManager`, `useCurrentPosition` returning `null`) — a scoped node_modules package mock, picked up automatically by Jest with no `jest.mock()` call needed in the test itself.
+
+With both fixed, the smoke test still finished with noisy "trying to import a file after the Jest environment has been torn down" errors — App's real async initialization (favorites/recents from storage, a location check, weather, the widget bridge, across ~26 features) was still in flight when the test's own `act()` returned, because the original test wrapped a synchronous callback in `act()` rather than an async one. Fixed by awaiting an async `act()` and explicitly `unmount()`-ing the renderer afterward (which runs every effect's cleanup) — the suite now finishes clean, no dangling warnings.
+
+Also added `jest.config.js`'s `moduleNameMapper` for `@react-native-async-storage/async-storage` → the package's own real in-memory test mock (shipped for exactly this, at `@react-native-async-storage/async-storage/jest`) — needed by every module below that persists something locally, and by the same `transformIgnorePatterns` gap as `@maplibre` (this package is ESM-only too, no CommonJS build at all).
+
+New, real unit tests for the app's pure-logic modules — the ones already manually verified once and now locked in as repeatable tests instead:
+- `src/measure/geometry.test.ts` — the exact "~1km² square / ~6km² rectangle, both within 0.5%" check from this file's own manual verification note above, now automated, plus edge cases (degenerate inputs, rotation-invariance).
+- `src/categories/categories.test.ts` — `haversineKm` against a known real distance and the "1° latitude ≈ 111km" sanity check.
+- `src/routing/searchAlongRoute.test.ts` — `sampleRoute`'s even-spacing, start/end-inclusion, and `MAX_SAMPLES` cap on a long route.
+- `src/weather/weatherCodes.test.ts` / `src/weather/api.test.ts` — the WMO code→emoji/label map (including the "unrecognized code" fallback, not just the happy path) and `formatTemp`'s C→F conversion.
+- `src/errors/logger.test.ts` — the error log's actual behavior: ordering (newest first), the 100-entry cap genuinely dropping the oldest, `Error` vs. non-`Error` values, and that `clearErrorLog` really empties it.
+- `src/theme/appearancePreference.test.ts` — round-trips System/Light/Dark and confirms a corrupted stored value degrades to `system` rather than throwing.
+- `src/search/SearchBox.test.ts` — `stripLeadingEmoji` (exported for exactly this), including the "the label is only an emoji" edge case.
+
+**Verified**: `npx jest` — 9 suites, 39 tests, all passing, ~1 second. `tsc --noEmit` and `eslint .` both clean.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))
