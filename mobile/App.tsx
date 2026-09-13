@@ -119,20 +119,24 @@ const INITIAL_ZOOM = 13;
 // (via <Camera minZoom/maxZoom> below). Unlike Kakao/Naver we don't have
 // global basemap coverage, just Belize's own OSM extract, so zooming out
 // indefinitely would eventually show a hard, ugly edge where our data (and
-// the "sea" polygon backing styles/basic.json's water fix) just stops. 9
-// is calibrated, not arbitrary: the visible viewport at zoom 9 on this
-// screen size (~2.3° tall) fits comfortably inside the sea layer's own
-// ~2.85°-tall extent when centered anywhere near the initial view or the
-// middle of the country — which covers ordinary browsing. It's not an
-// absolute guarantee: panning all the way to the far north (near Corozal)
-// or south (near Punta Gorda) while *also* fully zoomed out can still peek
-// past the edge slightly, since MAX_BOUNDS below deliberately stays wide
-// enough to keep those real towns reachable rather than shrinking the pan
-// range just to close that last sliver. 19 is building-level, past which
-// our vector tiles (maxzoom 16) just get upscaled with no new detail — the
-// same tradeoffs Kakao/Naver's own zoom limits make, just calibrated to
-// our smaller data footprint.
-const MIN_ZOOM = 9;
+// the "sea" polygon backing styles/basic.json's water fix) just stops.
+// MAX_BOUNDS below is a real MapLibre `maxBounds` — it constrains the
+// rendered viewport itself, not just the pan center, so it's what actually
+// stops zooming out from ever revealing the void past our data; MIN_ZOOM
+// just needs to not be tighter than what's actually useful.
+// 7, not 9: you asked for the zoomed-out view to show the whole country,
+// not just "however far out feels safe." Checked against MAX_BOUNDS' own
+// extent (2.6° wide x 2.85° tall) with this screen's real viewport-size-
+// per-zoom math (accounting for Mercator's cos(latitude) stretch at
+// Belize's ~17°N): the full width only fits from zoom 7 down — zoom 8
+// still crops the east/west edges. Confirmed visually in the simulator,
+// not just by the math: zoomed all the way out at 7, Corozal down to
+// Punta Gorda and the offshore reef are all on screen together with
+// margin to spare, no dead void beyond the coastline. 19 is building-level,
+// past which our vector tiles (maxzoom 16) just get upscaled with no new
+// detail — the same tradeoffs Kakao/Naver's own zoom limits make, just
+// calibrated to our smaller data footprint.
+const MIN_ZOOM = 7;
 const MAX_ZOOM = 19;
 
 // Matches the "sea" layer's real data extent (see scripts/import_water_
