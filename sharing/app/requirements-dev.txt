@@ -1,0 +1,6 @@
+# Test-only deps — not in requirements.txt/the production image on
+# purpose (see Dockerfile), installed ad-hoc into the already-running
+# container instead. See README.md's "Tests" section for the exact
+# commands and why this runs inside the container, not on the host.
+pytest==9.1.1
+httpx2==2.12.0

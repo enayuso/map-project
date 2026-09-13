@@ -35,6 +35,11 @@ services:
       # with no image rebuild, since this is hand-maintained reference
       # content refreshed every few months, not a database migration.
       - ./data:/app/data:ro
+      # Test-only files, mounted rather than baked into the production
+      # image (see Dockerfile — it only COPYs main.py) — editing a test
+      # doesn't need a rebuild, same reasoning as the two mounts above.
+      - ./app/test_main.py:/app/test_main.py:ro
+      - ./app/requirements-dev.txt:/app/requirements-dev.txt:ro
     networks:
       default:
       backend_net:

@@ -88,3 +88,18 @@ All resource types tested directly against the running service (not just code re
 - **Ferry routes / dive sites / border crossings**: confirmed all three endpoints return the real curated JSON content. Ferries and dive sites confirmed live in the mobile app (both panels open with correct data, real operator links, and the dive-site "Directions" button correctly starts routing) — the border-crossing markers/card weren't re-confirmed visually in this same pass (the Simulator's screenshot capture became unreliable partway through), but use the identical `Marker`+Modal-card pattern already visually verified for the other two. Also directly verified the "edit the file, `docker compose restart`, no rebuild needed" maintenance workflow — changed a value, restarted, confirmed the API reflected it, reverted, restarted again, confirmed reverted.
 
 See `mobile/README.md`'s location-sharing, shared-lists, search-along-route, hazard-reporting, POI-correction, ferry-schedule, dive-site, and border-crossing sections for the client-side UI and its own verification notes.
+
+## Tests (2026-09-13)
+
+`app/test_main.py` — a real pytest suite, the first automated tests anywhere in this project (everything above was verified by hand, one curl/session at a time). 22 tests across every resource type: full create→read→update→delete cycles for shares and lists, a full report→confirm→delete cycle for hazards plus bbox edge cases (oversized span, inverted min/max), POI correction submission + listing, every input-validation rule added in the hardening pass above (out-of-range coordinates, an oversized list, an invalid correction `field`/status filter, a too-short delete token), the three static-content endpoints, `/health`, and a direct test that the rate limiter actually engages (10 requests succeed, the 11th gets a real 429).
+
+**Why these run inside the container, not on the host**: they use FastAPI's `TestClient` to call `main.py` in-process (no network hop to the running server), but `main.py` itself still opens a real `psycopg2` connection to `postgis` — and a direct Postgres connection from the host hits the same Colima-networking bug `scripts/db_exec.sh`'s header comment already documents (HTTP is unaffected, only Postgres's own wire protocol). Running the suite inside the `sharing` container sidesteps it the same way that script does.
+
+These are genuine integration tests against the real dev database, not mocks — consistent with how this whole project has been verified throughout, not a new testing philosophy introduced just for this. Every test that creates a row deletes it again before finishing (confirmed after a full run: `location_shares`/`shared_lists`/`hazard_reports` all back to the counts they started at) — the one deliberate exception is a single `pending` POI correction, since that resource has no delete endpoint at all by design (approve/reject only, via the admin script); it's harmless leftover for that script to skip past, not a bug.
+
+Run them:
+```bash
+docker exec belize-sharing pip install -r requirements-dev.txt   # once per container lifecycle
+docker exec belize-sharing pytest -v
+```
+`test_main.py` and `requirements-dev.txt` are mounted read-only by `docker-compose.yml` (same pattern as `scripts/`'s own mount) — editing a test needs no image rebuild.

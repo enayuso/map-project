@@ -28,6 +28,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
 
 # Data files (large, regenerable — fetched/built by Phase 0/1 scripts, not committed)
 data/raw/
