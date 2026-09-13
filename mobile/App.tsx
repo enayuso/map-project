@@ -49,9 +49,10 @@ import AttributionFooter from './src/attribution/AttributionFooter';
 import CategoryBar from './src/categories/CategoryBar';
 import CategoryResultsSheet from './src/categories/CategoryResultsSheet';
 import { categoryLabel, formatDistanceKm, haversineKm, type NearbyResult } from './src/categories/categories';
-import MeetupPanel, { MAX_PARTICIPANTS, PARTICIPANT_COLORS } from './src/meetup/MeetupPanel';
+import MeetupPanel, { PARTICIPANT_COLORS } from './src/meetup/MeetupPanel';
 import MeetupResultsSheet from './src/meetup/MeetupResultsSheet';
-import { findMeetupCandidates, type MeetupCandidate } from './src/meetup/api';
+import type { MeetupCandidate } from './src/meetup/api';
+import { useMeetup } from './src/meetup/useMeetup';
 import SharingPanel from './src/sharing/SharingPanel';
 import { useSharing } from './src/sharing/useSharing';
 import MeasureBar, { type MeasureMode } from './src/measure/MeasureBar';
@@ -611,99 +612,24 @@ function App(): React.JSX.Element {
   };
 
   // --- Fair meeting-point calculator ---
-  // Per docs/research/09-kakao-naver-feature-audit.md, neither Kakao Map
-  // nor Naver Map actually has this natively (both punt to third-party
-  // apps built on their APIs) — see src/meetup/api.ts's own header comment
-  // for the actual fairness logic (minimax on real Valhalla travel times,
-  // not a straight-line geometric midpoint).
-  const [meetupActive, setMeetupActive] = useState(false);
-  const [participants, setParticipants] = useState<(SearchResult | null)[]>([null, null]);
-  const [activeParticipantIndex, setActiveParticipantIndex] = useState(0);
-  const [meetupCandidates, setMeetupCandidates] = useState<MeetupCandidate[]>([]);
-  const [meetupResultsVisible, setMeetupResultsVisible] = useState(false);
-  const [meetupLoading, setMeetupLoading] = useState(false);
-  const [meetupError, setMeetupError] = useState<string | null>(null);
-
-  const resetMeetup = () => {
-    setMeetupActive(false);
-    setParticipants([null, null]);
-    setMeetupCandidates([]);
-    setMeetupResultsVisible(false);
-    setMeetupError(null);
-  };
+  const meetup = useMeetup(locationEnabled, setLocationEnabled, currentPosition, recordRecentSearch);
 
   const toggleMeetup = () => {
-    if (meetupActive) {
-      resetMeetup();
+    if (meetup.active) {
+      meetup.reset();
     } else {
-      setMeetupActive(true);
+      meetup.activate();
       closeCategoryBrowsing();
       if (routingActive) toggleRouting(); // mutually exclusive top-level modes
       if (measureActive) toggleMeasure();
       setSelectedPlace(null); // a stale card from earlier browsing shouldn't linger over this
-      setActiveParticipantIndex(0);
-    }
-  };
-
-  const handleSelectParticipant = (index: number, result: SearchResult) => {
-    setParticipants(prev => prev.map((p, i) => (i === index ? result : p)));
-    recordRecentSearch(result);
-    // Advance to the next empty slot, same "keep moving forward" feel as
-    // the directions fields' auto-advance.
-    const nextEmpty = participants.findIndex((p, i) => i !== index && !p);
-    if (nextEmpty !== -1) setActiveParticipantIndex(nextEmpty);
-  };
-
-  const handleClearParticipant = (index: number) => {
-    setParticipants(prev => prev.map((p, i) => (i === index ? null : p)));
-    setActiveParticipantIndex(index);
-  };
-
-  const handleUseCurrentLocationForParticipant = (index: number) => {
-    if (!locationEnabled) setLocationEnabled(true);
-    if (!currentPosition) return;
-    handleSelectParticipant(index, {
-      id: `current-location-${index}`,
-      name: 'My location',
-      subtitle: 'Current position',
-      lat: currentPosition.coords.latitude,
-      lon: currentPosition.coords.longitude,
-      kind: 'poi',
-    });
-  };
-
-  const handleAddParticipant = () => {
-    setParticipants(prev => (prev.length < MAX_PARTICIPANTS ? [...prev, null] : prev));
-    setActiveParticipantIndex(participants.length);
-  };
-
-  const handleRemoveParticipant = (index: number) => {
-    setParticipants(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleFindMeetupPoint = async () => {
-    const filled = participants.filter((p): p is SearchResult => !!p);
-    if (filled.length < 2) return;
-    setMeetupLoading(true);
-    setMeetupError(null);
-    setMeetupResultsVisible(true);
-    try {
-      const candidates = await findMeetupCandidates(filled, 'auto');
-      setMeetupCandidates(candidates);
-      if (candidates.length === 0) setMeetupError('Nothing reachable by everyone nearby.');
-    } catch (e) {
-      logError('meetup:compare', e, { participantCount: filled.length });
-      setMeetupCandidates([]);
-      setMeetupError('Could not compare travel times — check that everyone has a valid location.');
-    } finally {
-      setMeetupLoading(false);
     }
   };
 
   const handleSelectMeetupCandidate = (candidate: MeetupCandidate) => {
     // Picking a result ends meetup mode — the natural next step is the
     // place's own card (Directions from here, etc.), not more comparing.
-    resetMeetup();
+    meetup.reset();
     setSelectedPlace(candidate.place);
     cameraRef.current?.flyTo({ center: [candidate.place.lon, candidate.place.lat], zoom: 16, duration: 1200 });
   };
@@ -727,7 +653,7 @@ function App(): React.JSX.Element {
       setMeasureActive(true);
       closeCategoryBrowsing();
       if (routingActive) toggleRouting(); // mutually exclusive top-level modes
-      if (meetupActive) toggleMeetup();
+      if (meetup.active) toggleMeetup();
       setMeasureMode('distance');
       setMeasurePoints([]);
     }
@@ -916,9 +842,9 @@ function App(): React.JSX.Element {
       return;
     }
 
-    if (meetupActive) {
+    if (meetup.active) {
       const [lon, lat] = event.nativeEvent.lngLat;
-      handleSelectParticipant(activeParticipantIndex, {
+      meetup.selectParticipant(meetup.activeParticipantIndex, {
         id: `tapped-${lat},${lon}`,
         name: 'Dropped pin',
         subtitle: 'Tapped on map',
@@ -994,7 +920,7 @@ function App(): React.JSX.Element {
     } else {
       setRoutingActive(true);
       closeCategoryBrowsing(); // category chips don't mean anything mid-directions
-      if (meetupActive) toggleMeetup(); // mutually exclusive top-level modes
+      if (meetup.active) toggleMeetup(); // mutually exclusive top-level modes
       if (measureActive) toggleMeasure();
       setActiveRouteField('origin');
       // If a place is already selected (from search or a map tap), use it
@@ -1164,8 +1090,8 @@ function App(): React.JSX.Element {
           </Marker>
         )}
 
-        {meetupActive &&
-          participants.map(
+        {meetup.active &&
+          meetup.participants.map(
             (p, i) =>
               p && (
                 <Marker key={i} lngLat={[p.lon, p.lat]}>
@@ -1173,8 +1099,8 @@ function App(): React.JSX.Element {
                 </Marker>
               ),
           )}
-        {meetupResultsVisible &&
-          meetupCandidates.map((c, i) => (
+        {meetup.resultsVisible &&
+          meetup.candidates.map((c, i) => (
             <Marker
               key={c.place.id}
               lngLat={[c.place.lon, c.place.lat]}
@@ -1272,22 +1198,22 @@ function App(): React.JSX.Element {
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
 
-      {!routingActive && !navigationActive && !meetupActive && !measureActive && !anyUtilityPanelOpen && (
+      {!routingActive && !navigationActive && !meetup.active && !measureActive && !anyUtilityPanelOpen && (
         <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
       )}
 
-      {meetupActive && (
+      {meetup.active && (
         <MeetupPanel
-          participants={participants}
-          activeIndex={activeParticipantIndex}
-          onFocusParticipant={setActiveParticipantIndex}
-          onSelectParticipant={handleSelectParticipant}
-          onClearParticipant={handleClearParticipant}
-          onUseCurrentLocation={handleUseCurrentLocationForParticipant}
-          onAddParticipant={handleAddParticipant}
-          onRemoveParticipant={handleRemoveParticipant}
-          onFindMeetupPoint={handleFindMeetupPoint}
-          finding={meetupLoading}
+          participants={meetup.participants}
+          activeIndex={meetup.activeParticipantIndex}
+          onFocusParticipant={meetup.setActiveParticipantIndex}
+          onSelectParticipant={meetup.selectParticipant}
+          onClearParticipant={meetup.clearParticipant}
+          onUseCurrentLocation={meetup.fillCurrentLocation}
+          onAddParticipant={meetup.addParticipant}
+          onRemoveParticipant={meetup.removeParticipant}
+          onFindMeetupPoint={meetup.findMeetupPoint}
+          finding={meetup.loading}
           onClose={toggleMeetup}
           recentSearches={recentSearches}
           favorites={favorites}
@@ -1295,12 +1221,12 @@ function App(): React.JSX.Element {
       )}
 
       <MeetupResultsSheet
-        visible={meetupResultsVisible}
-        loading={meetupLoading}
-        error={meetupError}
-        candidates={meetupCandidates}
+        visible={meetup.resultsVisible}
+        loading={meetup.loading}
+        error={meetup.error}
+        candidates={meetup.candidates}
         onSelect={handleSelectMeetupCandidate}
-        onClose={() => setMeetupResultsVisible(false)}
+        onClose={meetup.closeResults}
       />
 
       {measureActive && (
@@ -1344,11 +1270,11 @@ function App(): React.JSX.Element {
         />
       )}
 
-      {!routingActive && !navigationActive && !meetupActive && !measureActive && !anyUtilityPanelOpen && (
+      {!routingActive && !navigationActive && !meetup.active && !measureActive && !anyUtilityPanelOpen && (
         <CategoryBar active={activeCategory} onSelect={handleSelectCategory} />
       )}
 
-      {!routingActive && !navigationActive && !meetupActive && !measureActive && !anyUtilityPanelOpen && (
+      {!routingActive && !navigationActive && !meetup.active && !measureActive && !anyUtilityPanelOpen && (
         <View style={styles.directionsButtonWrap}>
           <Pressable
             style={[styles.directionsButton, { backgroundColor: colors.textPrimary }]}
@@ -1469,7 +1395,7 @@ function App(): React.JSX.Element {
         !hazards.reportVisible &&
         !routingActive &&
         !navigationActive &&
-        !meetupActive &&
+        !meetup.active &&
         !measureActive && (
           <View style={styles.reportHazardPillWrap} pointerEvents="box-none">
             <Pressable
