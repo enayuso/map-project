@@ -1,42 +1,57 @@
 /**
- * Exercises the coordinator's actual state machine — a small test harness
- * component drives the hook through react-test-renderer's `act()` (this
- * project has no @testing-library/react-hooks), since the interesting
- * behavior here is the two-phase "wait for a real onDismiss before
- * promoting the next slot" handoff, not just a snapshot of one render.
+ * Exercises the coordinator's actual state machine through its real public
+ * API — several independent components (a small test harness per id, since
+ * this project has no @testing-library/react-hooks) each calling
+ * useCoordinatedModal(id, desired) and subscribing to the shared singleton
+ * store, the same way SearchBox's several simultaneous instances do, not
+ * just one caller passing a whole map (which is how App.tsx's own
+ * singleton panels happen to call it, but isn't the only supported shape).
  */
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { useModalCoordinator, type ModalSlot } from './useModalCoordinator';
+import { modalCoordinatorStore, useCoordinatedModal, type ModalSlot } from './useModalCoordinator';
 
-function renderCoordinator(initialDesired: Record<string, boolean>) {
-  let latest: Record<string, ModalSlot> = {};
+beforeEach(() => {
+  modalCoordinatorStore.reset();
+});
 
-  function Harness({ desired }: { desired: Record<string, boolean> }) {
-    latest = useModalCoordinator(desired);
+function renderSlots(initialDesired: Record<string, boolean>) {
+  const latest: Record<string, ModalSlot> = {};
+
+  function Harness({ id, desired }: { id: string; desired: boolean }) {
+    latest[id] = useCoordinatedModal(id, desired);
     return null;
+  }
+
+  function Tree({ desired }: { desired: Record<string, boolean> }) {
+    return (
+      <>
+        {Object.entries(desired).map(([id, d]) => (
+          <Harness key={id} id={id} desired={d} />
+        ))}
+      </>
+    );
   }
 
   let renderer: ReactTestRenderer.ReactTestRenderer;
   act(() => {
-    renderer = ReactTestRenderer.create(<Harness desired={initialDesired} />);
+    renderer = ReactTestRenderer.create(<Tree desired={initialDesired} />);
   });
 
   return {
     get: () => latest,
     setDesired: (desired: Record<string, boolean>) => {
       act(() => {
-        renderer.update(<Harness desired={desired} />);
+        renderer.update(<Tree desired={desired} />);
       });
       return latest;
     },
-    unmount: () => act(() => renderer.unmount()),
   };
 }
 
-describe('useModalCoordinator', () => {
+describe('useCoordinatedModal', () => {
   it('promotes the only desired slot immediately when nothing else is active', () => {
-    const h = renderCoordinator({ a: false, b: false });
+    const h = renderSlots({ a: false, b: false });
     expect(h.get().a.visible).toBe(false);
     expect(h.get().b.visible).toBe(false);
 
@@ -46,7 +61,7 @@ describe('useModalCoordinator', () => {
   });
 
   it("displaces an already-visible slot, but doesn't promote the new one until the old one's onDismiss fires", () => {
-    const h = renderCoordinator({ a: true, b: false });
+    const h = renderSlots({ a: true, b: false });
     expect(h.get().a.visible).toBe(true);
 
     // b becomes desired while a is still desired too — a must be forced
@@ -64,7 +79,7 @@ describe('useModalCoordinator', () => {
   });
 
   it('falls back to a still-desired displaced slot once the displacing one closes and confirms dismissal', () => {
-    const h = renderCoordinator({ a: true, b: false });
+    const h = renderSlots({ a: true, b: false });
     let state = h.setDesired({ a: true, b: true });
     act(() => state.a.onDismiss()); // hand off a -> b
     state = h.get();
@@ -84,7 +99,7 @@ describe('useModalCoordinator', () => {
   });
 
   it('never reports more than one slot visible at a time across an arbitrary sequence', () => {
-    const h = renderCoordinator({ a: false, b: false, c: false });
+    const h = renderSlots({ a: false, b: false, c: false });
 
     const steps: Array<Record<string, boolean>> = [
       { a: true, b: false, c: false },
@@ -108,7 +123,25 @@ describe('useModalCoordinator', () => {
   });
 
   it('handles a slot that is already desired on the very first render', () => {
-    const h = renderCoordinator({ a: true, b: false });
+    const h = renderSlots({ a: true, b: false });
     expect(h.get().a.visible).toBe(true);
+  });
+
+  it('releases the floor when a still-active slot unmounts without closing first', () => {
+    // Mirrors a MeetupPanel participant row (and its SearchBox instance)
+    // being removed entirely while its dropdown happened to be the active
+    // slot — the next-in-line slot must still be able to take over, not
+    // find the floor permanently stuck.
+    const h = renderSlots({ a: true, b: false });
+    let state = h.setDesired({ a: true, b: true });
+    act(() => state.a.onDismiss()); // hand off a -> b
+    state = h.get();
+    expect(state.b.visible).toBe(true);
+
+    // Drop `b` from the tree entirely (its Harness unmounts) instead of
+    // setting its desired to false — the cleanup effect should behave the
+    // same as an explicit close, releasing the floor for `a`.
+    state = h.setDesired({ a: true });
+    expect(state.a.visible).toBe(true);
   });
 });

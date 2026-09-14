@@ -80,7 +80,7 @@ import ReportHazardSheet from './src/hazards/ReportHazardSheet';
 import HazardInfoCard from './src/hazards/HazardInfoCard';
 import { HAZARD_TYPE_EMOJI } from './src/hazards/api';
 import { useHazards } from './src/hazards/useHazards';
-import { useModalCoordinator } from './src/modals/useModalCoordinator';
+import { useCoordinatedModal } from './src/modals/useModalCoordinator';
 import { useSpotlight } from './src/spotlight/useSpotlight';
 import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
 import { usePOICorrection } from './src/poi-corrections/usePOICorrection';
@@ -851,31 +851,34 @@ function App(): React.JSX.Element {
   const remainingTrip = route ? getRemainingTrip(route, currentManeuverIndex) : null;
 
   // --- Modal coordinator ---
-  // Every full-screen <Modal>-based panel in the app (everything below
-  // except the plain-overlay utility panels, which never conflict with
-  // each other the same way) reports its own "would like to be shown"
-  // boolean here instead of driving its own <Modal>'s `visible` prop
-  // directly — see src/modals/useModalCoordinator.ts's header comment for
-  // why: two <Modal>s can't both be presented at once, and this is what
-  // makes sure exactly one of these ever is, sequencing the handoff
-  // through each one's own onDismiss. Each `desired` value below is still
-  // just whatever the feature's own state already means — nothing here
-  // changes when any of them individually becomes "wanted"; naming a
-  // slot here only asks the coordinator to also enforce mutual exclusion
-  // with every other named slot.
-  const modals = useModalCoordinator({
-    placeCard: !routingActive && !!selectedPlace,
-    categoryResults: !!activeCategory && !routingActive,
-    reportCorrection: !!correction.target,
-    routePanel: showRoutePanel,
-    alongRoute: alongRoute.wantsOpen,
-    meetupResults: meetup.resultsVisible,
-    listView: lists.viewSheetVisible,
-    hazardInfo: !!hazards.selected,
-    ferryPanel: ferries.visible,
-    diveSitesPanel: diveSites.active,
-    borderCrossingInfo: !!borderCrossings.selected,
-  });
+  // Every full-screen <Modal>-based panel App.tsx renders directly as a
+  // singleton (everything below except the plain-overlay utility panels,
+  // which never conflict with each other the same way, and SearchBox,
+  // whose own several simultaneous instances each register their own id
+  // — see src/search/SearchBox.tsx) reports its own "would like to be
+  // shown" boolean here instead of driving its own <Modal>'s `visible`
+  // prop directly — see src/modals/useModalCoordinator.ts's header
+  // comment for why: two <Modal>s can't both be presented at once, and
+  // this is what makes sure exactly one of these ever is, sequencing the
+  // handoff through each one's own onDismiss. Each `desired` value below
+  // is still just whatever the feature's own state already means —
+  // nothing here changes when any of them individually becomes "wanted";
+  // naming a slot here only asks the coordinator to also enforce mutual
+  // exclusion with every other named slot (including SearchBox's, since
+  // every id shares the one coordinator instance).
+  const modals = {
+    placeCard: useCoordinatedModal('placeCard', !routingActive && !!selectedPlace),
+    categoryResults: useCoordinatedModal('categoryResults', !!activeCategory && !routingActive),
+    reportCorrection: useCoordinatedModal('reportCorrection', !!correction.target),
+    routePanel: useCoordinatedModal('routePanel', showRoutePanel),
+    alongRoute: useCoordinatedModal('alongRoute', alongRoute.wantsOpen),
+    meetupResults: useCoordinatedModal('meetupResults', meetup.resultsVisible),
+    listView: useCoordinatedModal('listView', lists.viewSheetVisible),
+    hazardInfo: useCoordinatedModal('hazardInfo', !!hazards.selected),
+    ferryPanel: useCoordinatedModal('ferryPanel', ferries.visible),
+    diveSitesPanel: useCoordinatedModal('diveSitesPanel', diveSites.active),
+    borderCrossingInfo: useCoordinatedModal('borderCrossingInfo', !!borderCrossings.selected),
+  };
 
   // --- Live Activity / Dynamic Island (iOS only) ---
   useLiveActivity(navigationActive, navigationArrived, upcomingManeuver, remainingTrip, costing);
@@ -1105,7 +1108,7 @@ function App(): React.JSX.Element {
       <AttributionFooter showSatelliteCredit={showSatellite} />
 
       {!routingActive && !navigationActive && !meetup.active && !measure.active && !anyUtilityPanelOpen && (
-        <SearchBox onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
+        <SearchBox id="main" onSelect={handleSelect} recentSearches={recentSearches} favorites={favorites} />
       )}
 
       {meetup.active && (

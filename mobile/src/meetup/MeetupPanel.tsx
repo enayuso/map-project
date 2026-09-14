@@ -73,6 +73,7 @@ export default function MeetupPanel({
             <View style={[styles.fieldRow, activeIndex === index && styles.fieldRowActive]}>
               <View style={[styles.dot, { backgroundColor: PARTICIPANT_COLORS[index] }]} />
               <SearchBox
+                id={`meetup:${index}`}
                 embedded
                 clearOnSelect={false}
                 placeholder={`Person ${index + 1}`}

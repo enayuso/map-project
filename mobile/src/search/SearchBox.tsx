@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { searchAll, type SearchResult } from './api';
 import { useTheme } from '../theme/ThemeContext';
+import { useCoordinatedModal } from '../modals/useModalCoordinator';
 
 // VoiceOver labels describe what a row does in words — strip the leading
 // emoji glyph callers put in visible labels (extraShortcuts, section
@@ -26,6 +27,15 @@ const DEBOUNCE_MS = 300;
 const DISMISS_GUARD_MS = 300;
 
 type Props = {
+  /** Unique across every simultaneously-mounted SearchBox — this app has
+   * several at once (the main search bar, each DirectionsSearchPanel
+   * field, one per MeetupPanel participant row) — so this component can
+   * register its own slot with src/modals/useModalCoordinator.ts, the
+   * same one every other Modal-owning component in the app shares.
+   * Callers that render a variable number of instances (MeetupPanel)
+   * must make theirs distinct per instance (e.g. a template string keyed
+   * on index), not reuse one id across renders of different rows. */
+  id: string;
   onSelect: (result: SearchResult) => void;
   recentSearches: SearchResult[];
   favorites: SearchResult[];
@@ -71,6 +81,7 @@ type Props = {
 };
 
 export default function SearchBox({
+  id,
   onSelect,
   recentSearches,
   favorites,
@@ -104,6 +115,12 @@ export default function SearchBox({
   const showShortcuts =
     trimmed.length < 2 &&
     (!!extraShortcuts?.length || favorites.length > 0 || recentSearches.length > 0);
+
+  // This instance's own "would like to be shown" signal, unchanged from
+  // what used to drive the Modal's `visible` prop directly — the
+  // coordinator (shared with every other Modal-owning component in the
+  // app) decides whether it's actually this slot's turn.
+  const modal = useCoordinatedModal(id, showResults && (results.length > 0 || showShortcuts));
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -238,9 +255,10 @@ export default function SearchBox({
        */}
       <Modal
         transparent
-        visible={showResults && (results.length > 0 || showShortcuts)}
+        visible={modal.visible}
         animationType="none"
-        onRequestClose={dismiss}>
+        onRequestClose={dismiss}
+        onDismiss={modal.onDismiss}>
         <Pressable style={styles.backdrop} onPress={dismiss}>
           <View style={[styles.modalResultsWrapper, embedded && { top: dropdownTop }]} pointerEvents="box-none">
             <ScrollView

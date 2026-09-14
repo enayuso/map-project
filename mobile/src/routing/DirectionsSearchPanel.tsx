@@ -66,6 +66,7 @@ export default function DirectionsSearchPanel({
           <View style={[styles.fieldRow, activeField === 'origin' && styles.fieldRowActive]}>
             <View style={[styles.dot, styles.originDot]} />
             <SearchBox
+              id="directions:origin"
               embedded
               clearOnSelect={false}
               placeholder="Choose starting point"
@@ -97,6 +98,7 @@ export default function DirectionsSearchPanel({
           <View style={[styles.fieldRow, activeField === 'destination' && styles.fieldRowActive]}>
             <View style={[styles.dot, styles.destinationDot]} />
             <SearchBox
+              id="directions:destination"
               embedded
               clearOnSelect={false}
               placeholder="Choose destination"
