@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
@@ -82,7 +82,7 @@ import { HAZARD_TYPE_EMOJI } from './src/hazards/api';
 import { useHazards } from './src/hazards/useHazards';
 import { useSpotlight } from './src/spotlight/useSpotlight';
 import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
-import { submitPOICorrection, type CorrectionField } from './src/poi-corrections/api';
+import { usePOICorrection } from './src/poi-corrections/usePOICorrection';
 import FerryPanel from './src/ferries/FerryPanel';
 import { useFerries } from './src/ferries/useFerries';
 import DiveSitesPanel from './src/dive-sites/DiveSitesPanel';
@@ -808,37 +808,12 @@ function App(): React.JSX.Element {
   // opening the sheet closes PlaceCard (same "one bottom sheet at a time"
   // pattern as startDirectionsTo above) — selectedPlace would already be
   // null by the time the sheet needs to know what it's reporting on.
-  const [correctionTarget, setCorrectionTarget] = useState<SearchResult | null>(null);
-  const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
-  const [correctionError, setCorrectionError] = useState<string | null>(null);
+  const correction = usePOICorrection();
 
   const handleOpenCorrection = () => {
     if (!selectedPlace) return;
-    setCorrectionTarget(selectedPlace);
+    correction.open(selectedPlace);
     setSelectedPlace(null);
-  };
-
-  const handleSubmitCorrection = async (field: CorrectionField, suggestedValue: string, note: string) => {
-    if (!correctionTarget) return;
-    setCorrectionSubmitting(true);
-    setCorrectionError(null);
-    try {
-      await submitPOICorrection({
-        poiId: correctionTarget.id.replace(/^poi-/, ''),
-        poiName: correctionTarget.name,
-        field,
-        currentValue: field === 'name' ? correctionTarget.name : undefined,
-        suggestedValue: suggestedValue || undefined,
-        note: note || undefined,
-      });
-      setCorrectionTarget(null);
-      Alert.alert('Thanks!', "Your report was submitted — someone will review it before anything changes.");
-    } catch (e) {
-      logError('poiCorrection:submit', e, { field });
-      setCorrectionError('Could not submit — try again.');
-    } finally {
-      setCorrectionSubmitting(false);
-    }
   };
 
   const toggleRouting = () => {
@@ -1392,16 +1367,16 @@ function App(): React.JSX.Element {
       />
 
       <ReportCorrectionSheet
-        visible={!!correctionTarget}
-        placeName={correctionTarget?.name ?? ''}
-        submitting={correctionSubmitting}
-        error={correctionError}
-        onClose={() => setCorrectionTarget(null)}
-        onSubmit={handleSubmitCorrection}
+        visible={!!correction.target}
+        placeName={correction.target?.name ?? ''}
+        submitting={correction.submitting}
+        error={correction.error}
+        onClose={correction.close}
+        onSubmit={correction.submit}
       />
 
       <CategoryResultsSheet
-        visible={!!activeCategory && !routingActive && !selectedPlace && !correctionTarget}
+        visible={!!activeCategory && !routingActive && !selectedPlace && !correction.target}
         loading={categoryLoading}
         error={categoryError}
         categoryLabel={activeCategory ? categoryLabel(activeCategory) : ''}
