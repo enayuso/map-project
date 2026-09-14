@@ -216,6 +216,11 @@ See [research/10-remaining-feature-gaps.md](research/10-remaining-feature-gaps.m
 
 Nothing left unbuilt on this shortlist except what's tracked in "Noted for later" above.
 
+**Follow-up (2026-09-14)**: three more items, picked from live research into recent Kakao/Naver feature updates not already covered by the research docs above — see [mobile/README.md](../mobile/README.md) for full writeups and verification:
+- ✅ **Prefer paved roads** — a Belize-specific take on Kakao's route-options pattern (tolls don't apply here, but most roads outside towns are unpaved), wired to Valhalla's real `exclude_unpaved` costing option, confirmed empirically to change real routes.
+- ✅ **Live-shared location feeds the meetup calculator** — Kakao's group-sharing screen predicts each participant's live ETA to a destination; fuses two features this app already had separately (live location sharing, the fair meeting-point calculator). Found and worked around a real `SearchBox` extraShortcut race in the process (an action that opens its own native UI, like `Alert.prompt`, racing the dropdown Modal's own dismissal) — see mobile/README.md's Known issues #11. **Not fully verified**: the `Alert.prompt` step itself was never directly observed appearing in this session's automated testing, flagged honestly rather than assumed working.
+- ✅ **Belize seasonal highlights** — Kakao's cherry-blossom seasonal layer, generalized: lobster/conch closed seasons (Belize Fisheries Department), whale shark aggregation at Gladden Spit, sea turtle nesting season — see [docs/research/13-belize-seasonal-highlights-sourcing.md](research/13-belize-seasonal-highlights-sourcing.md) for full sourcing and each entry's own confidence level.
+
 Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).
 
 **Follow-up (2026-09-10)**: Belize's National Meteorological Service (nms.gov.bz) does not offer a real-time weather API — see [mobile/README.md](../mobile/README.md)'s Weather section. Open-Meteo remains the right choice.

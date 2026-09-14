@@ -49,6 +49,11 @@ type Props = {
   route: RouteResult | null;
   costing: Costing;
   onChangeCosting: (c: Costing) => void;
+  // Belize-specific "prefer paved roads" toggle (see src/routing/api.ts's
+  // RouteOptions doc comment) — only ever shown for costing === 'auto',
+  // since an unpaved path is normal, not a defect, for walking/biking.
+  preferPaved: boolean;
+  onTogglePreferPaved: () => void;
   onClear: () => void;
   onStartNavigation: () => void;
   onSearchAlongRoute: () => void;
@@ -65,6 +70,8 @@ export default function RoutePanel({
   route,
   costing,
   onChangeCosting,
+  preferPaved,
+  onTogglePreferPaved,
   onClear,
   onStartNavigation,
   onSearchAlongRoute,
@@ -176,6 +183,27 @@ export default function RoutePanel({
                 <Text style={[styles.clearLabel, { color: colors.textPrimary }]}>✕</Text>
               </Pressable>
             </View>
+
+            {costing === 'auto' && (
+              <Pressable
+                style={styles.preferPavedRow}
+                onPress={onTogglePreferPaved}
+                accessibilityRole="switch"
+                accessibilityLabel="Prefer paved roads"
+                accessibilityState={{ checked: preferPaved }}>
+                <View
+                  style={[
+                    styles.checkbox,
+                    { borderColor: colors.textSecondary },
+                    preferPaved && { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+                  ]}>
+                  {preferPaved && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+                <Text style={[styles.preferPavedLabel, { color: colors.textSecondary }]}>
+                  🛣️ Prefer paved roads
+                </Text>
+              </Pressable>
+            )}
 
             {loading && (
               <View style={styles.centerRow}>
@@ -294,6 +322,29 @@ const styles = StyleSheet.create({
   clearLabel: {
     fontSize: 15,
     color: '#3a3226',
+  },
+  preferPavedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxMark: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  preferPavedLabel: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   centerRow: {
     flexDirection: 'row',

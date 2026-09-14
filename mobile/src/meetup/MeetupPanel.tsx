@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import SearchBox from '../search/SearchBox';
 import type { SearchResult } from '../search/api';
 import { useTheme } from '../theme/ThemeContext';
@@ -24,6 +24,13 @@ type Props = {
   onSelectParticipant: (index: number, result: SearchResult) => void;
   onClearParticipant: (index: number) => void;
   onUseCurrentLocation: (index: number) => void;
+  // Kakao-style fusion of live location sharing with this calculator — see
+  // useMeetup.ts's fillFromSharedCode doc comment. liveShareCodes[index]
+  // being non-null means that slot is actively poll-refreshed, shown here
+  // as a small "🔴 live" badge next to the participant's name.
+  onUseSharedLocation: (index: number, code: string) => void;
+  liveShareCodes: (string | null)[];
+  sharedLocationError: string | null;
   onAddParticipant: () => void;
   onRemoveParticipant: (index: number) => void;
   onFindMeetupPoint: () => void;
@@ -40,6 +47,9 @@ export default function MeetupPanel({
   onSelectParticipant,
   onClearParticipant,
   onUseCurrentLocation,
+  onUseSharedLocation,
+  liveShareCodes,
+  sharedLocationError,
   onAddParticipant,
   onRemoveParticipant,
   onFindMeetupPoint,
@@ -51,6 +61,35 @@ export default function MeetupPanel({
   const { colors } = useTheme();
   const filledCount = participants.filter(Boolean).length;
   const canFind = filledCount >= MIN_PARTICIPANTS && !finding;
+
+  // Alert.prompt is iOS-only (this app is iOS-first/iOS-only for now,
+  // matching the same precedent in src/lists/ListsManagerPanel.tsx) — a
+  // native text-input dialog, so a shared code doesn't need its own inline
+  // input UI just for this one step.
+  //
+  // Deferred, not called directly from the shortcut's onPress: SearchBox's
+  // own extraShortcut handler (src/search/SearchBox.tsx's
+  // handleExtraShortcut) closes this dropdown's <Modal> immediately before
+  // running the shortcut's own action, and presenting Alert.prompt in the
+  // very same tick — while that Modal's dismiss is still only queued, not
+  // actually complete — reliably made the alert silently fail to appear at
+  // all (confirmed live, twice, including once against an onDismiss-
+  // chained version of this fix that surfaced a *worse* symptom: a real
+  // "Cannot read property 'getSnapshot' of null" crash from doing this
+  // from inside the native onDismiss callback itself, presumably too
+  // re-entrant for React's reconciler to handle safely). A plain deferred
+  // macrotask — not chained to any Modal lifecycle event — sidesteps both:
+  // by the time this runs, the dropdown's dismiss has had a full run loop
+  // pass to actually finish, and it's an ordinary scheduled callback, not
+  // one nested inside a raw native bridge callback frame.
+  const promptForSharedLocation = (index: number) => {
+    setTimeout(() => {
+      Alert.prompt('Enter their share code', "Ask them to open Live Location Sharing and read you their code", code => {
+        const trimmed = (code || '').trim();
+        if (trimmed) onUseSharedLocation(index, trimmed);
+      });
+    }, 300);
+  };
 
   return (
     <View style={styles.container}>
@@ -66,6 +105,10 @@ export default function MeetupPanel({
             <Text style={[styles.closeLabel, { color: colors.textPrimary }]}>✕</Text>
           </Pressable>
         </View>
+
+        {sharedLocationError && (
+          <Text style={[styles.sharedLocationError, { color: colors.danger }]}>{sharedLocationError}</Text>
+        )}
 
         {participants.map((participant, index) => (
           <View key={index}>
@@ -85,8 +128,16 @@ export default function MeetupPanel({
                 favorites={favorites}
                 extraShortcuts={[
                   { label: '📍 Use current location', onPress: () => onUseCurrentLocation(index) },
+                  { label: '📡 Use a shared location', onPress: () => promptForSharedLocation(index) },
                 ]}
               />
+              {liveShareCodes[index] && (
+                <Text
+                  style={[styles.liveBadge, { color: colors.accent }]}
+                  accessibilityLabel="Live shared location, updating automatically">
+                  🔴 live
+                </Text>
+              )}
               {participant && (
                 <Pressable
                   style={styles.rowButton}
@@ -203,6 +254,15 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     marginRight: 10,
+  },
+  liveBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    marginRight: 2,
+  },
+  sharedLocationError: {
+    fontSize: 12,
+    marginBottom: 6,
   },
   rowButton: {
     paddingHorizontal: 6,

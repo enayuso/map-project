@@ -185,7 +185,7 @@ class TestPoiCorrections:
 
 
 class TestStaticContent:
-    @pytest.mark.parametrize("path", ["/ferry-routes", "/dive-sites", "/border-crossings"])
+    @pytest.mark.parametrize("path", ["/ferry-routes", "/dive-sites", "/border-crossings", "/seasonal-highlights"])
     def test_returns_200(self, path):
         assert client.get(path).status_code == 200
 

@@ -20,12 +20,19 @@
  * `recordRecentSearch` are parameters (not owned here) since they're
  * core, cross-feature state this hook only reads or appends to.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { useCurrentPosition } from '@maplibre/maplibre-react-native';
 import { findMeetupCandidates, type MeetupCandidate } from './api';
 import { MAX_PARTICIPANTS } from './MeetupPanel';
 import { logError } from '../errors/logger';
+import { getSharedPosition } from '../sharing/api';
 import type { SearchResult } from '../search/api';
+
+// How often a participant filled via a live-share code re-polls their
+// position — matches src/sharing/useSharing.ts's own viewing-poll interval,
+// since this is the same underlying mechanism (a live-shared position),
+// just fed into a different consumer.
+const LIVE_SHARE_POLL_MS = 10000;
 
 type CurrentPosition = ReturnType<typeof useCurrentPosition>;
 
@@ -39,6 +46,19 @@ export type UseMeetup = {
   selectParticipant: (index: number, result: SearchResult) => void;
   clearParticipant: (index: number) => void;
   fillCurrentLocation: (index: number) => void;
+  /**
+   * Kakao's own group-location-sharing screen predicts each participant's
+   * live ETA to a shared destination — this is the fusion of that idea with
+   * the two features this app already has separately (live location
+   * sharing, this fair meeting-point calculator): fill a participant slot
+   * from someone else's live-shared position (the same short code from
+   * src/sharing/), rather than a one-time search/current-location snapshot.
+   * `liveShareCodes[index]` tracks which slots are live so the effect below
+   * knows what to keep polling, and MeetupPanel can show a "live" indicator.
+   */
+  fillFromSharedCode: (index: number, code: string) => Promise<void>;
+  liveShareCodes: (string | null)[];
+  sharedLocationError: string | null;
   addParticipant: () => void;
   removeParticipant: (index: number) => void;
   candidates: MeetupCandidate[];
@@ -62,6 +82,8 @@ export function useMeetup(
   const [resultsVisible, setResultsVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveShareCodes, setLiveShareCodes] = useState<(string | null)[]>([null, null]);
+  const [sharedLocationError, setSharedLocationError] = useState<string | null>(null);
 
   const activate = () => {
     setActive(true);
@@ -71,13 +93,19 @@ export function useMeetup(
   const reset = () => {
     setActive(false);
     setParticipants([null, null]);
+    setLiveShareCodes([null, null]);
     setCandidates([]);
     setResultsVisible(false);
     setError(null);
+    setSharedLocationError(null);
   };
 
   const selectParticipant = (index: number, result: SearchResult) => {
     setParticipants(prev => prev.map((p, i) => (i === index ? result : p)));
+    // A direct selection (search, current-location, map tap) replaces
+    // whatever was there — including a live-shared position, which stops
+    // being polled once it's no longer what's actually filling the slot.
+    setLiveShareCodes(prev => prev.map((c, i) => (i === index ? null : c)));
     recordRecentSearch(result);
     // Advance to the next empty slot, same "keep moving forward" feel as
     // the directions fields' auto-advance.
@@ -87,8 +115,78 @@ export function useMeetup(
 
   const clearParticipant = (index: number) => {
     setParticipants(prev => prev.map((p, i) => (i === index ? null : p)));
+    setLiveShareCodes(prev => prev.map((c, i) => (i === index ? null : c)));
     setActiveParticipantIndex(index);
   };
+
+  /**
+   * Kakao's group-sharing screen predicts each participant's live ETA to a
+   * shared destination — this is that idea fused with the two features
+   * this app already has separately (see the header comment above
+   * useMeetup and the UseMeetup.fillFromSharedCode doc comment). Fills a
+   * participant slot from someone else's live-shared position (the same
+   * short code src/sharing/ already uses) instead of a one-time snapshot,
+   * and marks it in `liveShareCodes` so the poll effect below keeps it
+   * fresh while meetup mode stays open.
+   */
+  const fillFromSharedCode = async (index: number, code: string) => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return;
+    setSharedLocationError(null);
+    try {
+      const pos = await getSharedPosition(trimmed);
+      selectParticipant(index, {
+        id: `shared-${index}`,
+        name: pos.label ? `${pos.label} (shared)` : `Shared location (${trimmed})`,
+        subtitle: 'Live shared location',
+        lat: pos.lat,
+        lon: pos.lon,
+        kind: 'poi',
+      });
+      // selectParticipant (above) just cleared this index back to null on
+      // the assumption it's a one-time selection — override that back to
+      // live for this specific case, now that the slot is actually filled.
+      setLiveShareCodes(prev => prev.map((c, i) => (i === index ? trimmed : c)));
+    } catch (e) {
+      logError('meetup:fillFromSharedCode', e, { index });
+      setSharedLocationError(e instanceof Error ? e.message : 'Could not find that shared location.');
+    }
+  };
+
+  // Keeps every live-shared participant's position fresh while meetup mode
+  // is open — same poll cadence as src/sharing/useSharing.ts's own
+  // "viewing" poll, since it's the same underlying mechanism, just feeding
+  // a different consumer. A ref (not a direct effect dependency) so the
+  // interval doesn't need to be torn down and recreated every time a slot
+  // is filled/cleared — it always reads whichever codes are current.
+  const liveShareCodesRef = useRef(liveShareCodes);
+  useEffect(() => {
+    liveShareCodesRef.current = liveShareCodes;
+  }, [liveShareCodes]);
+
+  useEffect(() => {
+    if (!active) return;
+    const poll = () => {
+      liveShareCodesRef.current.forEach((code, index) => {
+        if (!code) return;
+        getSharedPosition(code)
+          .then(pos => {
+            setParticipants(prev => prev.map((p, i) => (i === index && p ? { ...p, lat: pos.lat, lon: pos.lon } : p)));
+          })
+          .catch(e => {
+            // The share expired or was stopped server-side — stop treating
+            // this slot as live (matches useSharing's own "stop pretending"
+            // behavior on a failed push/poll) but leave the participant's
+            // last-known position filled in rather than blanking the slot
+            // out from under the user mid-session.
+            logError('meetup:liveSharePoll', e, { index });
+            setLiveShareCodes(prev => prev.map((c, i) => (i === index ? null : c)));
+          });
+      });
+    };
+    const interval = setInterval(poll, LIVE_SHARE_POLL_MS);
+    return () => clearInterval(interval);
+  }, [active]);
 
   const fillCurrentLocation = (index: number) => {
     if (!locationEnabled) setLocationEnabled(true);
@@ -105,11 +203,15 @@ export function useMeetup(
 
   const addParticipant = () => {
     setParticipants(prev => (prev.length < MAX_PARTICIPANTS ? [...prev, null] : prev));
+    setLiveShareCodes(prev => (prev.length < MAX_PARTICIPANTS ? [...prev, null] : prev));
     setActiveParticipantIndex(participants.length);
   };
 
   const removeParticipant = (index: number) => {
     setParticipants(prev => prev.filter((_, i) => i !== index));
+    // Kept in lockstep with participants — same index scheme, so a removed
+    // slot's live-poll tracking is dropped along with the slot itself.
+    setLiveShareCodes(prev => prev.filter((_, i) => i !== index));
   };
 
   const findMeetupPoint = async () => {
@@ -141,6 +243,9 @@ export function useMeetup(
     selectParticipant,
     clearParticipant,
     fillCurrentLocation,
+    fillFromSharedCode,
+    liveShareCodes,
+    sharedLocationError,
     addParticipant,
     removeParticipant,
     candidates,

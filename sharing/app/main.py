@@ -560,6 +560,12 @@ def get_dive_sites(request: Request):
     return read_json_data("dive_sites.json")
 
 
+@app.get("/seasonal-highlights")
+@limiter.limit(STATIC_LIMIT)
+def get_seasonal_highlights(request: Request):
+    return read_json_data("seasonal_highlights.json")
+
+
 @app.get("/border-crossings")
 @limiter.limit(STATIC_LIMIT)
 def get_border_crossings(request: Request):

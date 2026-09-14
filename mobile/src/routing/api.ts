@@ -70,10 +70,29 @@ function decodePolyline(encoded: string, precision = 6): [number, number][] {
   return coords;
 }
 
+export type RouteOptions = {
+  /**
+   * Belize-specific "prefer paved roads" option (see mobile/README.md's
+   * "Prefer paved roads" section for the full writeup) — Kakao's own
+   * route-options pattern (free-roads-only, major-roads-first, etc.)
+   * doesn't translate directly since Belize has no tolls, but "major
+   * roads first" maps onto something genuinely local: most roads outside
+   * towns are unpaved (docs/research/06-pilot-region-data-audit.md).
+   * Wired to Valhalla's real `exclude_unpaved` auto costing option —
+   * confirmed empirically against the live service to actually change the
+   * computed route (a Cayo-area test route: 13.12km/18.36min without it,
+   * 13.64km/19.06min with it), not just accepted-and-ignored. Only
+   * meaningful for `auto` — a dirt path is normal, not a defect, for
+   * walking/biking, so this is never sent for those costings.
+   */
+  preferPaved?: boolean;
+};
+
 export async function fetchRoute(
   origin: LatLon,
   destination: LatLon,
   costing: Costing,
+  options?: RouteOptions,
 ): Promise<RouteResult> {
   const res = await fetch(`${VALHALLA_URL}/route`, {
     method: 'POST',
@@ -84,6 +103,9 @@ export async function fetchRoute(
         { lat: destination.lat, lon: destination.lon },
       ],
       costing,
+      ...(costing === 'auto' && options?.preferPaved
+        ? { costing_options: { auto: { exclude_unpaved: true } } }
+        : {}),
     }),
   });
   const body = await res.json();

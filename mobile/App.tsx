@@ -92,6 +92,8 @@ import { useDiveSites } from './src/dive-sites/useDiveSites';
 import BorderCrossingInfoCard from './src/border-crossings/BorderCrossingInfoCard';
 import type { BorderCrossing } from './src/border-crossings/api';
 import { useBorderCrossings } from './src/border-crossings/useBorderCrossings';
+import SeasonalHighlightsPanel from './src/seasonal/SeasonalHighlightsPanel';
+import { useSeasonalHighlights } from './src/seasonal/useSeasonalHighlights';
 import { updateWidgetData } from './src/widget/api';
 import { weatherCodeInfo } from './src/weather/weatherCodes';
 import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
@@ -403,6 +405,12 @@ function App(): React.JSX.Element {
   };
 
   const [costing, setCosting] = useState<Costing>('auto');
+  // Belize-specific "prefer paved roads" toggle — see src/routing/api.ts's
+  // RouteOptions doc comment for the full reasoning and the live-Valhalla
+  // verification. Only meaningful (and only ever sent) for `auto`; reset
+  // to off on a costing switch away from `auto` so it can't silently apply
+  // to a walk/bike route where an unpaved path isn't a defect at all.
+  const [preferPaved, setPreferPaved] = useState(false);
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -411,7 +419,7 @@ function App(): React.JSX.Element {
     if (!origin || !destination) return;
     setRouteLoading(true);
     setRouteError(null);
-    fetchRoute(origin, destination, costing)
+    fetchRoute(origin, destination, costing, { preferPaved })
       .then(result => {
         setRoute(result);
         // Fit the whole route in view — up to now the camera's just wherever
@@ -429,7 +437,7 @@ function App(): React.JSX.Element {
         setRouteError(e.message === 'Valhalla 400' ? 'No route found between these points.' : 'Could not fetch route.');
       })
       .finally(() => setRouteLoading(false));
-  }, [origin, destination, costing]);
+  }, [origin, destination, costing, preferPaved]);
 
   // --- Search along route ---
   // Per docs/research/10-remaining-feature-gaps.md: no new backend, just
@@ -685,6 +693,12 @@ function App(): React.JSX.Element {
     });
   };
 
+  // --- Seasonal highlights (2026-09-14) ---
+  // Belize's analog of Kakao Map's own seasonal cherry-blossom layer (see
+  // docs/research/13-belize-seasonal-highlights-sourcing.md) — same
+  // "curated, no live feed exists" situation as ferries/dive sites above.
+  const seasonal = useSeasonalHighlights(closeUtilityPanels);
+
   const handleSelect = (result: SearchResult) => {
     setSelectedPlace(result);
     recordRecentSearch(result);
@@ -878,6 +892,7 @@ function App(): React.JSX.Element {
     ferryPanel: useCoordinatedModal('ferryPanel', ferries.visible),
     diveSitesPanel: useCoordinatedModal('diveSitesPanel', diveSites.active),
     borderCrossingInfo: useCoordinatedModal('borderCrossingInfo', !!borderCrossings.selected),
+    seasonalHighlights: useCoordinatedModal('seasonalHighlights', seasonal.visible),
   };
 
   // --- Live Activity / Dynamic Island (iOS only) ---
@@ -897,6 +912,7 @@ function App(): React.JSX.Element {
     hazards.reportVisible ||
     ferries.visible ||
     diveSites.active ||
+    seasonal.visible ||
     moreMenu.visible ||
     errorLog.visible;
 
@@ -923,6 +939,7 @@ function App(): React.JSX.Element {
       onPress: diveSites.toggle,
       active: diveSites.active,
     },
+    { key: 'seasonal', icon: '🌴', label: 'Seasonal highlights', onPress: seasonal.toggle },
     { key: 'errorLog', icon: '🐞', label: 'Error log', onPress: errorLog.toggle },
   ];
 
@@ -1103,6 +1120,17 @@ function App(): React.JSX.Element {
             </View>
           </Marker>
         ))}
+
+        {seasonal.visible &&
+          seasonal.highlights
+            .filter((h): h is typeof h & { location: NonNullable<(typeof h)['location']> } => !!h.location)
+            .map(h => (
+              <Marker key={h.id} lngLat={[h.location.lon, h.location.lat]}>
+                <View style={styles.seasonalPin}>
+                  <Text style={styles.seasonalPinEmoji}>{h.emoji}</Text>
+                </View>
+              </Marker>
+            ))}
       </Map>
 
       <AttributionFooter showSatelliteCredit={showSatellite} />
@@ -1119,6 +1147,9 @@ function App(): React.JSX.Element {
           onSelectParticipant={meetup.selectParticipant}
           onClearParticipant={meetup.clearParticipant}
           onUseCurrentLocation={meetup.fillCurrentLocation}
+          onUseSharedLocation={meetup.fillFromSharedCode}
+          liveShareCodes={meetup.liveShareCodes}
+          sharedLocationError={meetup.sharedLocationError}
           onAddParticipant={meetup.addParticipant}
           onRemoveParticipant={meetup.removeParticipant}
           onFindMeetupPoint={meetup.findMeetupPoint}
@@ -1428,7 +1459,12 @@ function App(): React.JSX.Element {
         error={routeError}
         route={route}
         costing={costing}
-        onChangeCosting={setCosting}
+        onChangeCosting={c => {
+          setCosting(c);
+          if (c !== 'auto') setPreferPaved(false);
+        }}
+        preferPaved={preferPaved}
+        onTogglePreferPaved={() => setPreferPaved(p => !p)}
         onClear={() => {
           clearRoute();
           setRoutingActive(false);
@@ -1488,6 +1524,15 @@ function App(): React.JSX.Element {
         onClose={diveSites.close}
         onDirections={handleDiveSiteDirections}
         onDismiss={modals.diveSitesPanel.onDismiss}
+      />
+
+      <SeasonalHighlightsPanel
+        visible={modals.seasonalHighlights.visible}
+        loading={seasonal.loading}
+        error={seasonal.error}
+        highlights={seasonal.highlights}
+        onClose={seasonal.close}
+        onDismiss={modals.seasonalHighlights.onDismiss}
       />
 
       <BorderCrossingInfoCard
@@ -1573,6 +1618,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   borderPinEmoji: {
+    fontSize: 13,
+  },
+  seasonalPin: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#2f9e44',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seasonalPinEmoji: {
     fontSize: 13,
   },
   directionsButtonWrap: {

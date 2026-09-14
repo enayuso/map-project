@@ -1,0 +1,82 @@
+{
+  "_comment": "Curated Belize-specific seasonal highlights — matches Kakao Map's own seasonal-layer pattern (its cherry-blossom map), reused here for real Belize fishery/wildlife seasons. Hand-maintained, not live-computed: no API/feed exists for any of these. See docs/research/13-belize-seasonal-highlights-sourcing.md for full sourcing and why confidence differs per entry (lobster is one fixed official date range; queen conch is quota-driven and closes early most years; whale sharks and turtle nesting are real but don't reduce to one official date the way lobster does). activeWindow uses month/day (1-12 / 1-31); startMonth > endMonth means the window wraps across the new year (lobster's open season, not shown here since the *closed* season is what's flagged as the highlight, does not wrap: see each entry). Re-verify at least once a year and update lastVerifiedAt when touched.",
+  "highlights": [
+    {
+      "id": "lobster-closed-season",
+      "name": "Lobster season closed",
+      "emoji": "🦞",
+      "activeWindow": { "startMonth": 3, "startDay": 1, "endMonth": 6, "endDay": 30 },
+      "location": null,
+      "description": "Spiny lobster fishing is closed March 1 - June 30 nationwide to protect the breeding season, reopening July 1. This is the closed window, not the open one, since that's the more useful heads-up for a visitor expecting lobster on the menu.",
+      "source": "Belize Fisheries Department (fisheries.gov.bz/regulations)",
+      "confidence": "High — official regulator page, consistently corroborated by current-year news each season.",
+      "lastVerifiedAt": "2026-09-14"
+    },
+    {
+      "id": "conch-closed-season",
+      "name": "Queen conch season closed (approximate)",
+      "emoji": "🐚",
+      "activeWindow": { "startMonth": 7, "startDay": 1, "endMonth": 9, "endDay": 30 },
+      "location": null,
+      "description": "Queen conch harvesting is nominally closed July 1 - September 30, but Belize closes it early every recent year once the national catch quota is met (as early as April in the 2025-26 season) — treat the true closure as \"probably already in effect\" for much of this window, not a hard boundary.",
+      "source": "Belize Fisheries Department (fisheries.gov.bz/regulations); Belize Fisheries Department season-closure announcements (thereporter.bz, breakingbelizenews.com, sanpedrosun.com, 2026)",
+      "confidence": "Medium — official nominal range, but quota-driven early closures mean the real closure date varies year to year and isn't predictable in advance.",
+      "lastVerifiedAt": "2026-09-14"
+    },
+    {
+      "id": "whale-shark-gladden-spit",
+      "name": "Whale sharks at Gladden Spit",
+      "emoji": "🦈",
+      "activeWindow": { "startMonth": 3, "startDay": 15, "endMonth": 6, "endDay": 15 },
+      "location": { "lat": 16.567, "lon": -88.033, "label": "Gladden Spit and Silk Cayes Marine Reserve" },
+      "description": "Whale sharks gather at Gladden Spit, about 90 minutes by boat from Placencia, to feed on spawning Cubera snapper — most reliable for a few days around the full moons of April, May, and June. Book through a licensed Placencia dive operator.",
+      "source": "Splash Dive Center (licensed Placencia dive operator); Heyman et al., Journal of Fish Biology (2005); Belize Fisheries Department (fisheries.gov.bz/gsscmr)",
+      "confidence": "Medium — real and well-documented, but tourism-operator guidance and peer-reviewed science give slightly different day-counts around each full moon, so this is shown as a broad month window rather than an exact date.",
+      "lastVerifiedAt": "2026-09-14"
+    },
+    {
+      "id": "turtle-nesting-season",
+      "name": "Sea turtle nesting season",
+      "emoji": "🐢",
+      "activeWindow": { "startMonth": 5, "startDay": 1, "endMonth": 11, "endDay": 30 },
+      "location": null,
+      "description": "Hawksbill, loggerhead, and green turtles nest at sites including Gales Point/Manatee Bar, Half Moon Caye, and South Water Caye — peak activity is June-July. No single Belize authority publishes one national date range (this composites Belize Audubon Society's and SEA Belize's own site-specific windows), so treat this as a helpful approximation, not an official boundary.",
+      "source": "Belize Audubon Society (Half Moon Caye); SEA Belize; ECOMAR",
+      "confidence": "Medium — real nesting activity, well-documented at the site level, but composited from several site-specific managing bodies rather than one national source.",
+      "lastVerifiedAt": "2026-09-14"
+    },
+    {
+      "id": "turtle-nesting-gales-point",
+      "name": "Gales Point / Manatee Bar (hawksbill nesting)",
+      "emoji": "🐢",
+      "activeWindow": { "startMonth": 5, "startDay": 1, "endMonth": 11, "endDay": 30 },
+      "location": { "lat": 17.183, "lon": -88.333, "label": "Gales Point / Manatee Bar" },
+      "description": "One of the most important hawksbill turtle nesting sites in the western Caribbean, an 8km stretch of beach near Gales Point village.",
+      "source": "ECOMAR (ecomarbelize.org/references.html)",
+      "confidence": "Medium — site and species well-documented; exact date range composited, see turtle-nesting-season entry.",
+      "lastVerifiedAt": "2026-09-14"
+    },
+    {
+      "id": "turtle-nesting-half-moon-caye",
+      "name": "Half Moon Caye (turtle nesting)",
+      "emoji": "🐢",
+      "activeWindow": { "startMonth": 6, "startDay": 1, "endMonth": 11, "endDay": 30 },
+      "location": { "lat": 17.205, "lon": -87.536, "label": "Half Moon Caye Natural Monument, Lighthouse Reef Atoll" },
+      "description": "Loggerhead, green, and hawksbill turtles all nest here — hatchlings emerge roughly 55-65 days later, peaking September-October.",
+      "source": "Belize Audubon Society (belizeaudubon.org/hmcnm)",
+      "confidence": "High for this specific site — the managing body's own published window.",
+      "lastVerifiedAt": "2026-09-14"
+    },
+    {
+      "id": "turtle-nesting-south-water-caye",
+      "name": "South Water Caye (hawksbill nesting)",
+      "emoji": "🐢",
+      "activeWindow": { "startMonth": 5, "startDay": 1, "endMonth": 11, "endDay": 30 },
+      "location": { "lat": 16.819, "lon": -88.084, "label": "South Water Caye Marine Reserve" },
+      "description": "A monitored hawksbill nesting hotspot within South Water Caye Marine Reserve.",
+      "source": "Hawksbill Sea Turtle Recovery Program monitoring (secondary sourcing — see docs/research/13)",
+      "confidence": "Medium — site and species documented via secondary sources rather than the monitoring program's own page directly.",
+      "lastVerifiedAt": "2026-09-14"
+    }
+  ]
+}
