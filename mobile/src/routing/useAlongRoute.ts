@@ -34,7 +34,11 @@
  * previous one has genuinely finished clearing the way. close() is the
  * mirror image: hide our own Modal first, and only restore RoutePanel
  * (clearing `hidingRoutePanel`) once onSheetDismissed confirms ours is
- * fully gone too.
+ * fully gone too — *unless* we never actually got to present in the first
+ * place (App.tsx's clearRoute() tearing down the whole routing flow while
+ * RoutePanel was still mid-dismiss), in which case close() cancels the
+ * pending reveal immediately rather than leaving `hidingRoutePanel` stuck
+ * true for a dismiss event that already has nothing to react to.
  */
 import { useState } from 'react';
 import type { RouteResult } from './api';
@@ -79,6 +83,22 @@ export function useAlongRoute(route: RouteResult | null): UseAlongRoute {
   };
 
   const close = () => {
+    if (!visible) {
+      // Asked RoutePanel to hide (open() was called) but never actually
+      // got to present our own Modal — e.g. clearRoute() ran while
+      // RoutePanel was still mid-dismiss-animation, before its onDismiss
+      // ever fired. Nothing of ours is presented, so there's nothing to
+      // wait on: cancel the pending reveal immediately. Without this,
+      // hidingRoutePanel would stay stuck true, and onRoutePanelDismissed
+      // would reveal this sheet later, on top of whatever's on screen by
+      // then, once RoutePanel's already-in-flight dismiss eventually
+      // completes on its own.
+      setHidingRoutePanel(false);
+      setCategory(null);
+      setResults([]);
+      setError(null);
+      return;
+    }
     setVisible(false);
   };
 
