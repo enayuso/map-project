@@ -77,7 +77,8 @@ curl -H "X-TYPESENSE-API-KEY: typesense_dev_local_only" \
   "http://127.0.0.1:8108/collections/pois/documents/search" -G
 ```
 
-## Not yet wired up
+## Not yet done
 
-- Not yet connected to the mobile app's UI (Phase 2's "search box on top of the map" — the backend piece is done, the client integration isn't)
-- No ranking beyond Typesense's defaults (text-match + typo distance) — no popularity/verification-status boost yet, since that needs the Phase 3 POI data platform (review/verification signals) to exist first
+- **No ranking beyond Typesense's defaults** (text-match + typo distance) — no popularity/verification-status boost yet, since that needs the Phase 3 POI data platform (review/verification signals) to exist first
+
+Note: this was originally written before the client integration existed ("not yet connected to the mobile app's UI") — that's stale. This index has been wired into the mobile app's search box, category quick-filter browsing, and fair meeting-point calculator since Phase 2/4.5 — see [mobile/README.md](../mobile/README.md).

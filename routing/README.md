@@ -40,5 +40,7 @@ Run `../scripts/test_routing.sh` for a full smoke test.
 ## Not yet done
 
 - **No live or historical traffic** — ETAs above are static/free-flow-speed-based, exactly as scoped in [docs/PLAN.md](../docs/PLAN.md) Phase 4 (no traffic data source exists for Belize yet — see [docs/research/04-routing-traffic.md](../docs/research/04-routing-traffic.md))
-- **Not wired into the mobile app** — this is a backend service only so far, same status Phase 2's services were in before their UI got built
 - **Turn-restriction/one-way accuracy** not field-verified — the data loaded correctly, but whether it matches real-world signage is unconfirmed
+- **Belize City ↔ San Pedro `auto` routing is still genuinely bad, not just "long/indirect" as first noted above** — re-checked 2026-09-14: today it drives ~370km/5.7hrs north to Corozal to use the *Corozal↔San Pedro* ferry relation, rather than anything resembling the actual ~75min direct water-taxi tourists use from Belize City itself. That direct route simply isn't in OSM as a routable way at all — this is a real data gap, not a Valhalla config issue, and the app's own [Ferries feature](../mobile/README.md) already has the real schedule/operator data as curated content specifically *because* this isn't routable. Worth either mapping the direct route in OSM, or having the mobile app detect a mainland↔caye trip and point at the Ferries panel instead of returning the driving route as if it were sensible.
+
+**Wired into the mobile app** since Phase 4/4.5 — directions, live turn-by-turn navigation, search-along-route, and the fair meeting-point calculator's travel-time matrix all call this service. See [mobile/README.md](../mobile/README.md).
