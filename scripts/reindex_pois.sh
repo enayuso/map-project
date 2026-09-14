@@ -22,6 +22,25 @@ COPY (
   FROM planet_osm_point
   WHERE (amenity IS NOT NULL OR shop IS NOT NULL OR tourism IS NOT NULL)
     AND name IS NOT NULL AND name <> ''
+    -- Street furniture: OSM tags these the same way it tags real places, so
+    -- they pass the 'has a name' check above whenever a contributor copies
+    -- the tag itself into the name (amenity=bench name=bench, etc. — this is
+    -- exactly how two such nodes made it into search once before: confirmed
+    -- via a live search-history entry that traced back to these tags, though
+    -- by the time this filter was added the live index had already moved on
+    -- from that snapshot and the two nodes' name fields had since been
+    -- cleared upstream in OSM). None of these are things a user would ever
+    -- search for or navigate to, unlike e.g. a named 'Purified Drinking
+    -- Water Refill' shop or 'Orange Walk Clock' landmark — both of which use
+    -- amenity tags from this same 'street furniture' family (drinking_water,
+    -- clock) but carry real, specific names and so are deliberately NOT
+    -- excluded here; only tags with zero legitimately-named uses in Belize's
+    -- current OSM data are listed.
+    AND (amenity IS NULL OR amenity NOT IN (
+      'bench', 'waste_basket', 'waste_disposal', 'recycling',
+      'bicycle_parking', 'bicycle_repair_station', 'fire_hydrant',
+      'telephone', 'grit_bin'
+    ))
 ) TO STDOUT WITH (FORMAT csv, HEADER true)
 " > "$CSV_PATH"
 
