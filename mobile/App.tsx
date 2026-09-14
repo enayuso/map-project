@@ -13,7 +13,7 @@
  * usable, not just the two areas we happened to test most during Phases 1-4.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
@@ -80,7 +80,7 @@ import ReportHazardSheet from './src/hazards/ReportHazardSheet';
 import HazardInfoCard from './src/hazards/HazardInfoCard';
 import { HAZARD_TYPE_EMOJI } from './src/hazards/api';
 import { useHazards } from './src/hazards/useHazards';
-import { indexSpotlightItems, subscribeToSpotlightSelection } from './src/spotlight/api';
+import { useSpotlight } from './src/spotlight/useSpotlight';
 import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
 import { submitPOICorrection, type CorrectionField } from './src/poi-corrections/api';
 import FerryPanel from './src/ferries/FerryPanel';
@@ -262,37 +262,17 @@ function App(): React.JSX.Element {
     });
   };
 
-  const recordRecentSearch = (place: SearchResult) => {
+  // useCallback'd — a stable identity so useSpotlight's selection-listener
+  // effect (which takes this as a parameter, not a local closure) doesn't
+  // need to resubscribe on every render just because this got a new
+  // reference; setRecentSearches is itself stable and addRecentSearch is a
+  // module-level import, so an empty deps array is safe here.
+  const recordRecentSearch = useCallback((place: SearchResult) => {
     addRecentSearch(place).then(setRecentSearches);
-  };
+  }, []);
 
   // --- iOS Spotlight search integration ---
-  // Per docs/research/10-remaining-feature-gaps.md — favorites/recents show
-  // up in the system-wide Spotlight search (swipe down on the home
-  // screen); tapping one jumps straight to that place, cold-launch or not.
-  useEffect(() => {
-    // A plain keyed object, not `Map` — this file already imports MapLibre's
-    // own `Map` React component under that exact name, which shadows the
-    // built-in JS Map class.
-    const deduped: Record<string, SearchResult> = {};
-    // Favorites first — a deliberately saved place is more worth surfacing
-    // in Spotlight than something merely searched once.
-    [...favorites, ...recentSearches].forEach(item => {
-      deduped[item.id] = item;
-    });
-    indexSpotlightItems(Object.values(deduped));
-  }, [favorites, recentSearches]);
-
-  useEffect(() => {
-    const unsubscribe = subscribeToSpotlightSelection(id => {
-      const match = [...favorites, ...recentSearches].find(item => item.id === id);
-      if (!match) return; // stale index entry (e.g. a favorite since removed) — nothing to jump to
-      setSelectedPlace(match);
-      recordRecentSearch(match);
-      cameraRef.current?.flyTo({ center: [match.lon, match.lat], zoom: 16, duration: 1200 });
-    });
-    return unsubscribe;
-  }, [favorites, recentSearches]);
+  useSpotlight(favorites, recentSearches, setSelectedPlace, recordRecentSearch, cameraRef);
 
   const isSelectedPlaceFavorite = !!selectedPlace && favorites.some(f => f.id === selectedPlace.id);
 
