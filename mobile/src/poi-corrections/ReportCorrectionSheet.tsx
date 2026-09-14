@@ -124,6 +124,7 @@ export default function ReportCorrectionSheet({
               placeholderTextColor={colors.textSecondary}
               value={nameInput}
               onChangeText={setNameInput}
+              maxLength={200}
             />
           )}
 

@@ -423,17 +423,20 @@ def confirm_hazard(request: Request, hazard_id: int):
     conn = get_conn()
     try:
         with conn, conn.cursor() as cur:
+            # RETURNING avoids a second round-trip to read back the very
+            # value the UPDATE just computed.
             cur.execute(
                 "UPDATE hazard_reports SET "
                 "expires_at = LEAST(reported_at + %s, GREATEST(expires_at, %s) + %s), "
                 "confirm_count = confirm_count + 1 "
-                "WHERE id = %s AND expires_at > %s",
+                "WHERE id = %s AND expires_at > %s "
+                "RETURNING expires_at",
                 (MAX_HAZARD_AGE, now, CONFIRM_BUMP, hazard_id, now),
             )
-            if cur.rowcount == 0:
+            row = cur.fetchone()
+            if row is None:
                 raise HTTPException(404, "Report not found or expired")
-            cur.execute("SELECT expires_at FROM hazard_reports WHERE id = %s", (hazard_id,))
-            expires_at = cur.fetchone()[0]
+            expires_at = row[0]
         return {"expiresAt": expires_at.isoformat()}
     finally:
         conn.close()
