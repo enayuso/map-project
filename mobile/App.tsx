@@ -1386,7 +1386,7 @@ function App(): React.JSX.Element {
       />
 
       <RoutePanel
-        visible={showRoutePanel}
+        visible={showRoutePanel && !alongRoute.hidingRoutePanel}
         loading={routeLoading}
         error={routeError}
         route={route}
@@ -1398,6 +1398,7 @@ function App(): React.JSX.Element {
         }}
         onStartNavigation={handleStartNavigation}
         onSearchAlongRoute={alongRoute.open}
+        onDismiss={alongRoute.onRoutePanelDismissed}
       />
 
       <AlongRouteSheet
@@ -1409,6 +1410,7 @@ function App(): React.JSX.Element {
         onSelectCategory={alongRoute.selectCategory}
         onSelectResult={handleSelectAlongRouteResult}
         onClose={alongRoute.close}
+        onDismiss={alongRoute.onSheetDismissed}
       />
 
       <ReportHazardSheet

@@ -20,6 +20,11 @@ type Props = {
   onSelectCategory: (key: string) => void;
   onSelectResult: (result: AlongRouteResult) => void;
   onClose: () => void;
+  // Fires once this Modal's own dismiss animation has actually finished —
+  // see useAlongRoute.ts's header comment for why: RoutePanel's own Modal
+  // waits for this before re-presenting itself, since two <Modal>s can't
+  // both be presented at once from the same view controller.
+  onDismiss?: () => void;
 };
 
 export default function AlongRouteSheet({
@@ -31,12 +36,13 @@ export default function AlongRouteSheet({
   onSelectCategory,
   onSelectResult,
   onClose,
+  onDismiss,
 }: Props) {
   const { colors } = useTheme();
   const categories = CATEGORIES.filter(c => ALONG_ROUTE_CATEGORIES.includes(c.key));
 
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable
           style={StyleSheet.absoluteFill}

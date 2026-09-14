@@ -52,6 +52,10 @@ type Props = {
   onClear: () => void;
   onStartNavigation: () => void;
   onSearchAlongRoute: () => void;
+  // Fires once this Modal's own dismiss animation has actually finished —
+  // see useAlongRoute.ts's header comment for why AlongRouteSheet's own
+  // Modal needs to wait for that, not just for `visible` to flip.
+  onDismiss?: () => void;
 };
 
 export default function RoutePanel({
@@ -64,6 +68,7 @@ export default function RoutePanel({
   onClear,
   onStartNavigation,
   onSearchAlongRoute,
+  onDismiss,
 }: Props) {
   const { colors } = useTheme();
   const expandedHeight = Dimensions.get('window').height * EXPANDED_FRACTION;
@@ -122,7 +127,15 @@ export default function RoutePanel({
     // sibling can swallow touches meant for an absolutely-positioned RN
     // overlay (facebook/react-native#35612); see src/search/SearchBox.tsx
     // for the first time we hit this and mobile/README.md issue 6.
-    <Modal transparent visible={visible} animationType="slide">
+    //
+    // onDismiss matters here specifically because of AlongRouteSheet: two
+    // <Modal>s can't both be presented at once from the same presenting
+    // view controller — iOS logs "Attempt to present ... which is already
+    // presenting ..." and silently drops the second one. useAlongRoute.ts
+    // hides this Modal first and waits for onDismiss (this callback) before
+    // presenting AlongRouteSheet's own Modal, rather than guessing at a
+    // delay long enough for the slide-out animation to finish.
+    <Modal transparent visible={visible} animationType="slide" onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Animated.View style={[styles.panel, { backgroundColor: colors.card, height: heightAnim }]}>
           {/* Drag handle + header are the only pan-responder surface — the
