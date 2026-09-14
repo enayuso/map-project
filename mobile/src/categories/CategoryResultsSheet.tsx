@@ -19,6 +19,10 @@ type Props = {
   results: NearbyResult[];
   onSelect: (result: NearbyResult) => void;
   onClose: () => void;
+  // Fed to the underlying <Modal> — see src/modals/useModalCoordinator.ts's
+  // header comment for why this app's Modal-based panels report their own
+  // dismiss completion back rather than just driving `visible` directly.
+  onDismiss?: () => void;
 };
 
 export default function CategoryResultsSheet({
@@ -29,13 +33,14 @@ export default function CategoryResultsSheet({
   results,
   onSelect,
   onClose,
+  onDismiss,
 }: Props) {
   const { colors } = useTheme();
   return (
     // Modal, not a plain overlay — this list mounts/unmounts based on
     // state, the exact shape of overlay that facebook/react-native#35612
     // affects (see src/search/SearchBox.tsx and mobile/README.md issue 6).
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable
           style={StyleSheet.absoluteFill}

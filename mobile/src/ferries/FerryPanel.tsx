@@ -15,12 +15,16 @@ type Props = {
   error: string | null;
   routes: FerryRoute[];
   onClose: () => void;
+  // Fed to the underlying <Modal> — see src/modals/useModalCoordinator.ts's
+  // header comment for why this app's Modal-based panels report their own
+  // dismiss completion back rather than just driving `visible` directly.
+  onDismiss?: () => void;
 };
 
-export default function FerryPanel({ visible, loading, error, routes, onClose }: Props) {
+export default function FerryPanel({ visible, loading, error, routes, onClose, onDismiss }: Props) {
   const { colors } = useTheme();
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable
           style={StyleSheet.absoluteFill}

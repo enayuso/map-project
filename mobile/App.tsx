@@ -80,6 +80,7 @@ import ReportHazardSheet from './src/hazards/ReportHazardSheet';
 import HazardInfoCard from './src/hazards/HazardInfoCard';
 import { HAZARD_TYPE_EMOJI } from './src/hazards/api';
 import { useHazards } from './src/hazards/useHazards';
+import { useModalCoordinator } from './src/modals/useModalCoordinator';
 import { useSpotlight } from './src/spotlight/useSpotlight';
 import ReportCorrectionSheet from './src/poi-corrections/ReportCorrectionSheet';
 import { usePOICorrection } from './src/poi-corrections/usePOICorrection';
@@ -849,6 +850,33 @@ function App(): React.JSX.Element {
     routingActive && !navigationActive && !pickingMapPointFor && (routeLoading || !!route || !!routeError);
   const remainingTrip = route ? getRemainingTrip(route, currentManeuverIndex) : null;
 
+  // --- Modal coordinator ---
+  // Every full-screen <Modal>-based panel in the app (everything below
+  // except the plain-overlay utility panels, which never conflict with
+  // each other the same way) reports its own "would like to be shown"
+  // boolean here instead of driving its own <Modal>'s `visible` prop
+  // directly — see src/modals/useModalCoordinator.ts's header comment for
+  // why: two <Modal>s can't both be presented at once, and this is what
+  // makes sure exactly one of these ever is, sequencing the handoff
+  // through each one's own onDismiss. Each `desired` value below is still
+  // just whatever the feature's own state already means — nothing here
+  // changes when any of them individually becomes "wanted"; naming a
+  // slot here only asks the coordinator to also enforce mutual exclusion
+  // with every other named slot.
+  const modals = useModalCoordinator({
+    placeCard: !routingActive && !!selectedPlace,
+    categoryResults: !!activeCategory && !routingActive,
+    reportCorrection: !!correction.target,
+    routePanel: showRoutePanel,
+    alongRoute: alongRoute.wantsOpen,
+    meetupResults: meetup.resultsVisible,
+    listView: lists.viewSheetVisible,
+    hazardInfo: !!hazards.selected,
+    ferryPanel: ferries.visible,
+    diveSitesPanel: diveSites.active,
+    borderCrossingInfo: !!borderCrossings.selected,
+  });
+
   // --- Live Activity / Dynamic Island (iOS only) ---
   useLiveActivity(navigationActive, navigationArrived, upcomingManeuver, remainingTrip, costing);
 
@@ -1099,12 +1127,13 @@ function App(): React.JSX.Element {
       )}
 
       <MeetupResultsSheet
-        visible={meetup.resultsVisible}
+        visible={modals.meetupResults.visible}
         loading={meetup.loading}
         error={meetup.error}
         candidates={meetup.candidates}
         onSelect={handleSelectMeetupCandidate}
         onClose={meetup.closeResults}
+        onDismiss={modals.meetupResults.onDismiss}
       />
 
       {measure.active && (
@@ -1322,10 +1351,11 @@ function App(): React.JSX.Element {
       />
 
       <ListViewSheet
-        visible={lists.viewSheetVisible}
+        visible={modals.listView.visible}
         list={lists.viewedList}
         onSelect={handleSelectListPlace}
         onClose={lists.closeViewSheet}
+        onDismiss={modals.listView.onDismiss}
       />
 
       <OfflineMapsPanel
@@ -1357,6 +1387,7 @@ function App(): React.JSX.Element {
       />
 
       <PlaceCard
+        visible={modals.placeCard.visible}
         place={routingActive ? null : selectedPlace}
         travelPreview={travelPreview}
         isFavorite={isSelectedPlaceFavorite}
@@ -1364,29 +1395,32 @@ function App(): React.JSX.Element {
         onDirections={() => selectedPlace && startDirectionsTo(selectedPlace)}
         onToggleFavorite={handleToggleFavorite}
         onReportIssue={handleOpenCorrection}
+        onDismiss={modals.placeCard.onDismiss}
       />
 
       <ReportCorrectionSheet
-        visible={!!correction.target}
+        visible={modals.reportCorrection.visible}
         placeName={correction.target?.name ?? ''}
         submitting={correction.submitting}
         error={correction.error}
         onClose={correction.close}
         onSubmit={correction.submit}
+        onDismiss={modals.reportCorrection.onDismiss}
       />
 
       <CategoryResultsSheet
-        visible={!!activeCategory && !routingActive && !selectedPlace && !correction.target}
+        visible={modals.categoryResults.visible}
         loading={categoryLoading}
         error={categoryError}
         categoryLabel={activeCategory ? categoryLabel(activeCategory) : ''}
         results={categoryResults}
         onSelect={handleSelectCategoryResult}
         onClose={closeCategoryBrowsing}
+        onDismiss={modals.categoryResults.onDismiss}
       />
 
       <RoutePanel
-        visible={showRoutePanel && !alongRoute.hidingRoutePanel}
+        visible={modals.routePanel.visible}
         loading={routeLoading}
         error={routeError}
         route={route}
@@ -1398,11 +1432,11 @@ function App(): React.JSX.Element {
         }}
         onStartNavigation={handleStartNavigation}
         onSearchAlongRoute={alongRoute.open}
-        onDismiss={alongRoute.onRoutePanelDismissed}
+        onDismiss={modals.routePanel.onDismiss}
       />
 
       <AlongRouteSheet
-        visible={alongRoute.visible}
+        visible={modals.alongRoute.visible}
         activeCategory={alongRoute.category}
         loading={alongRoute.loading}
         error={alongRoute.error}
@@ -1410,7 +1444,7 @@ function App(): React.JSX.Element {
         onSelectCategory={alongRoute.selectCategory}
         onSelectResult={handleSelectAlongRouteResult}
         onClose={alongRoute.close}
-        onDismiss={alongRoute.onSheetDismissed}
+        onDismiss={modals.alongRoute.onDismiss}
       />
 
       <ReportHazardSheet
@@ -1423,6 +1457,7 @@ function App(): React.JSX.Element {
       />
 
       <HazardInfoCard
+        visible={modals.hazardInfo.visible}
         hazard={hazards.selected}
         isMine={hazards.isSelectedMine}
         confirming={hazards.confirming}
@@ -1430,29 +1465,34 @@ function App(): React.JSX.Element {
         onClose={() => hazards.select(null)}
         onConfirm={hazards.confirmSelected}
         onDelete={hazards.deleteSelected}
+        onDismiss={modals.hazardInfo.onDismiss}
       />
 
       <FerryPanel
-        visible={ferries.visible}
+        visible={modals.ferryPanel.visible}
         loading={ferries.loading}
         error={ferries.error}
         routes={ferries.routes}
         onClose={ferries.close}
+        onDismiss={modals.ferryPanel.onDismiss}
       />
 
       <DiveSitesPanel
-        visible={diveSites.active}
+        visible={modals.diveSitesPanel.visible}
         loading={diveSites.loading}
         error={diveSites.error}
         sites={diveSites.sites}
         onClose={diveSites.close}
         onDirections={handleDiveSiteDirections}
+        onDismiss={modals.diveSitesPanel.onDismiss}
       />
 
       <BorderCrossingInfoCard
+        visible={modals.borderCrossingInfo.visible}
         crossing={borderCrossings.selected}
         onClose={() => borderCrossings.select(null)}
         onDirections={handleBorderCrossingDirections}
+        onDismiss={modals.borderCrossingInfo.onDismiss}
       />
     </View>
   );

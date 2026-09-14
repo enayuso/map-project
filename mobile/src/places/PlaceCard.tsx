@@ -10,6 +10,13 @@ export type TravelPreview =
   | { status: 'ready'; distanceKm: number; durationMin: number };
 
 type Props = {
+  // Whether this card is actually allowed to be presented right now — see
+  // src/modals/useModalCoordinator.ts's header comment. Independent of
+  // `place`: this can be false while `place` is still non-null (another
+  // Modal currently has the floor), in which case the card just stays
+  // hidden with its data intact, ready to reappear once it's this
+  // coordinator slot's turn again.
+  visible: boolean;
   place: SearchResult | null;
   travelPreview: TravelPreview;
   isFavorite: boolean;
@@ -17,9 +24,14 @@ type Props = {
   onDirections: () => void;
   onToggleFavorite: () => void;
   onReportIssue: () => void;
+  // Fed to the underlying <Modal> — reports back once its dismiss
+  // *animation* has actually finished, which the coordinator needs to
+  // know before it's safe to present whatever's next.
+  onDismiss?: () => void;
 };
 
 export default function PlaceCard({
+  visible,
   place,
   travelPreview,
   isFavorite,
@@ -27,6 +39,7 @@ export default function PlaceCard({
   onDirections,
   onToggleFavorite,
   onReportIssue,
+  onDismiss,
 }: Props) {
   const { colors } = useTheme();
   // Corrections only make sense for our own Typesense-backed POIs (see
@@ -35,7 +48,7 @@ export default function PlaceCard({
   // of which are rows this app could actually patch.
   const isCorrectablePOI = place?.kind === 'poi' && place.id.startsWith('poi-');
   return (
-    <Modal transparent visible={!!place} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         {place && (

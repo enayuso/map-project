@@ -14,15 +14,24 @@ const POSITION_SOURCE_LABELS: Record<BorderCrossing['positionSource'], string> =
 };
 
 type Props = {
+  // Whether this card is actually allowed to be presented right now — see
+  // src/modals/useModalCoordinator.ts's header comment. Independent of
+  // `crossing`: can be false while `crossing` is still non-null (another
+  // Modal currently has the floor).
+  visible: boolean;
   crossing: BorderCrossing | null;
   onClose: () => void;
   onDirections: (crossing: BorderCrossing) => void;
+  // Fed to the underlying <Modal> — reports back once its dismiss
+  // *animation* has actually finished, which the coordinator needs to
+  // know before it's safe to present whatever's next.
+  onDismiss?: () => void;
 };
 
-export default function BorderCrossingInfoCard({ crossing, onClose, onDirections }: Props) {
+export default function BorderCrossingInfoCard({ visible, crossing, onClose, onDirections, onDismiss }: Props) {
   const { colors } = useTheme();
   return (
-    <Modal transparent visible={!!crossing} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable
           style={StyleSheet.absoluteFill}

@@ -16,6 +16,11 @@ function timeAgo(iso: string): string {
 }
 
 type Props = {
+  // Whether this card is actually allowed to be presented right now — see
+  // src/modals/useModalCoordinator.ts's header comment. Independent of
+  // `hazard`: can be false while `hazard` is still non-null (another
+  // Modal currently has the floor).
+  visible: boolean;
   hazard: HazardReport | null;
   isMine: boolean;
   confirming: boolean;
@@ -23,9 +28,14 @@ type Props = {
   onClose: () => void;
   onConfirm: () => void;
   onDelete: () => void;
+  // Fed to the underlying <Modal> — reports back once its dismiss
+  // *animation* has actually finished, which the coordinator needs to
+  // know before it's safe to present whatever's next.
+  onDismiss?: () => void;
 };
 
 export default function HazardInfoCard({
+  visible,
   hazard,
   isMine,
   confirming,
@@ -33,11 +43,12 @@ export default function HazardInfoCard({
   onClose,
   onConfirm,
   onDelete,
+  onDismiss,
 }: Props) {
   const { colors } = useTheme();
 
   return (
-    <Modal transparent visible={!!hazard} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable
           style={StyleSheet.absoluteFill}

@@ -31,6 +31,10 @@ type Props = {
   error: string | null;
   onClose: () => void;
   onSubmit: (field: CorrectionField, suggestedValue: string, note: string) => void;
+  // Fed to the underlying <Modal> — see src/modals/useModalCoordinator.ts's
+  // header comment for why this app's Modal-based panels report their own
+  // dismiss completion back rather than just driving `visible` directly.
+  onDismiss?: () => void;
 };
 
 export default function ReportCorrectionSheet({
@@ -40,6 +44,7 @@ export default function ReportCorrectionSheet({
   error,
   onClose,
   onSubmit,
+  onDismiss,
 }: Props) {
   const { colors } = useTheme();
   const [field, setField] = useState<CorrectionField>('name');
@@ -69,7 +74,7 @@ export default function ReportCorrectionSheet({
   };
 
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={handleClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={handleClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
         <View style={[styles.sheet, { backgroundColor: colors.card }]}>

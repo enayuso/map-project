@@ -15,12 +15,16 @@ type Props = {
   sites: DiveSite[];
   onClose: () => void;
   onDirections: (site: DiveSite) => void;
+  // Fed to the underlying <Modal> — see src/modals/useModalCoordinator.ts's
+  // header comment for why this app's Modal-based panels report their own
+  // dismiss completion back rather than just driving `visible` directly.
+  onDismiss?: () => void;
 };
 
-export default function DiveSitesPanel({ visible, loading, error, sites, onClose, onDirections }: Props) {
+export default function DiveSitesPanel({ visible, loading, error, sites, onClose, onDirections, onDismiss }: Props) {
   const { colors } = useTheme();
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable
           style={StyleSheet.absoluteFill}

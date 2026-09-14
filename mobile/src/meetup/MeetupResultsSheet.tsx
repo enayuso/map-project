@@ -19,6 +19,10 @@ type Props = {
   candidates: MeetupCandidate[];
   onSelect: (candidate: MeetupCandidate) => void;
   onClose: () => void;
+  // Fed to the underlying <Modal> — see src/modals/useModalCoordinator.ts's
+  // header comment for why this app's Modal-based panels report their own
+  // dismiss completion back rather than just driving `visible` directly.
+  onDismiss?: () => void;
 };
 
 export default function MeetupResultsSheet({
@@ -28,6 +32,7 @@ export default function MeetupResultsSheet({
   candidates,
   onSelect,
   onClose,
+  onDismiss,
 }: Props) {
   const { colors } = useTheme();
 
@@ -35,7 +40,7 @@ export default function MeetupResultsSheet({
     // Modal, not a plain overlay — same touch-swallowing reason as every
     // other mounts/unmounts-based list in this app (mobile/README.md
     // issue 6, src/search/SearchBox.tsx).
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
       <View style={styles.backdrop} pointerEvents="box-none">
         <Pressable
           style={StyleSheet.absoluteFill}
