@@ -35,15 +35,15 @@ import hybridStyle from './src/styles/hybrid.json';
 import SearchBox from './src/search/SearchBox';
 import { reverseGeocode, searchNearby, type SearchResult } from './src/search/api';
 import { fetchRoute, type Costing, type RouteResult } from './src/routing/api';
-import RoutePanel, { COSTING_LABELS, PEEK_HEIGHT as ROUTE_PANEL_PEEK_HEIGHT } from './src/routing/RoutePanel';
+import RoutePanel, { PEEK_HEIGHT as ROUTE_PANEL_PEEK_HEIGHT } from './src/routing/RoutePanel';
 import DirectionsSearchPanel, {
   PANEL_HEIGHT as DIRECTIONS_PANEL_HEIGHT,
   PANEL_TOP as DIRECTIONS_PANEL_TOP,
 } from './src/routing/DirectionsSearchPanel';
 import MapPointPicker from './src/routing/MapPointPicker';
 import NavigationBar from './src/routing/NavigationBar';
-import { getRemainingTrip, getUpcomingManeuver, maneuverIcon, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
-import { syncLiveActivity, endLiveActivity } from './src/routing/liveActivity';
+import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
+import { useLiveActivity } from './src/routing/useLiveActivity';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 import AttributionFooter from './src/attribution/AttributionFooter';
 import CategoryBar from './src/categories/CategoryBar';
@@ -875,32 +875,7 @@ function App(): React.JSX.Element {
   const remainingTrip = route ? getRemainingTrip(route, currentManeuverIndex) : null;
 
   // --- Live Activity / Dynamic Island (iOS only) ---
-  // Mirrors whatever this live-navigation state already is — see
-  // src/routing/liveActivity.ts's header comment. Ends whenever navigation
-  // stops, whether by arrival or the user tapping "End".
-  useEffect(() => {
-    if (!navigationActive) return;
-    if (navigationArrived) {
-      syncLiveActivity(COSTING_LABELS[costing], {
-        nextInstruction: "You've arrived",
-        distanceToManeuverKm: 0,
-        etaMinutes: 0,
-        maneuverEmoji: '🏁',
-      });
-      return;
-    }
-    if (!upcomingManeuver || !remainingTrip) return;
-    syncLiveActivity(COSTING_LABELS[costing], {
-      nextInstruction: upcomingManeuver.maneuver.instruction,
-      distanceToManeuverKm: upcomingManeuver.distanceToManeuverKm,
-      etaMinutes: Math.round(remainingTrip.durationMin),
-      maneuverEmoji: maneuverIcon(upcomingManeuver.maneuver.type),
-    });
-  }, [navigationActive, navigationArrived, upcomingManeuver, remainingTrip, costing]);
-
-  useEffect(() => {
-    if (!navigationActive) endLiveActivity();
-  }, [navigationActive]);
+  useLiveActivity(navigationActive, navigationArrived, upcomingManeuver, remainingTrip, costing);
 
   // Quick, dismissable utility overlays (sharing/offline/lists/weather) —
   // unlike Directions/Meet Up/Measure's full "modes," each has its own
