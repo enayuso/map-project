@@ -18,7 +18,12 @@ module.exports = {
   // failing to even run before this fix — confirmed by reverting this
   // change and re-running, not assumed — because MapLibre's own
   // CommonJS build re-exports a source .ts file straight through.
+  // @invertase (react-native-apple-authentication, added for the profile
+  // feature) ships an ESM `import` in its main entry point too — same
+  // fix, confirmed the same way (reverting this addition reproduces the
+  // exact "Cannot use import statement outside a module" failure in
+  // App.test.tsx, which imports App.tsx, which imports ProfilePanel.tsx).
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|@react-native-async-storage|@maplibre)/)',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|@react-native-async-storage|@maplibre|@invertase)/)',
   ],
 };

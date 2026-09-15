@@ -99,6 +99,8 @@ import type { BorderCrossing } from './src/border-crossings/api';
 import { useBorderCrossings } from './src/border-crossings/useBorderCrossings';
 import SeasonalHighlightsPanel from './src/seasonal/SeasonalHighlightsPanel';
 import { useSeasonalHighlights } from './src/seasonal/useSeasonalHighlights';
+import ProfilePanel from './src/profile/ProfilePanel';
+import { useProfile } from './src/profile/useProfile';
 import { updateWidgetData } from './src/widget/api';
 import { weatherCodeInfo } from './src/weather/weatherCodes';
 import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
@@ -225,6 +227,7 @@ function App(): React.JSX.Element {
     ferries.close();
     diveSites.close();
     seasonal.close();
+    profile.close();
     moreMenu.close();
     errorLog.close();
   };
@@ -709,6 +712,12 @@ function App(): React.JSX.Element {
   // "curated, no live feed exists" situation as ferries/dive sites above.
   const seasonal = useSeasonalHighlights(closeUtilityPanels);
 
+  // --- Profile (2026-09-15) ---
+  // Sign in with Apple + a nickname/avatar, not a Naver/Kakao-style
+  // account system — see docs/research/14-naver-kakao-profile-systems.md
+  // and sharing/README.md's Profile section for the full reasoning.
+  const profile = useProfile(closeUtilityPanels);
+
   const handleSelect = (result: SearchResult) => {
     setSelectedPlace(result);
     recordRecentSearch(result);
@@ -923,12 +932,19 @@ function App(): React.JSX.Element {
     ferries.visible ||
     diveSites.active ||
     seasonal.visible ||
+    profile.panelVisible ||
     moreMenu.visible ||
     errorLog.visible;
 
   const appearanceLabel = preference === 'system' ? 'System' : preference === 'light' ? 'Light' : 'Dark';
 
   const moreMenuItems: MoreMenuItem[] = [
+    {
+      key: 'profile',
+      icon: profile.profile ? profile.profile.avatarEmoji : '👤',
+      label: profile.profile ? profile.profile.nickname : 'Sign in',
+      onPress: profile.toggle,
+    },
     { key: 'appearance', icon: '🌓', label: `Appearance: ${appearanceLabel}`, onPress: cyclePreference },
     { key: 'weather', icon: '🌤️', label: 'Weather', onPress: weatherFeature.toggle },
     { key: 'lists', icon: '📋', label: 'Saved lists', onPress: lists.toggleManager },
@@ -1554,6 +1570,20 @@ function App(): React.JSX.Element {
         highlights={seasonal.highlights}
         onClose={seasonal.close}
         onDismiss={modals.seasonalHighlights.onDismiss}
+      />
+
+      <ProfilePanel
+        visible={profile.panelVisible}
+        onClose={profile.close}
+        profile={profile.profile}
+        loading={profile.loading}
+        signingIn={profile.signingIn}
+        error={profile.error}
+        onSignIn={profile.signIn}
+        onSignOut={profile.signOut}
+        onUpdateNickname={profile.updateNickname}
+        onUpdateAvatar={profile.updateAvatar}
+        onDeleteAccount={profile.deleteAccount}
       />
 
       <BorderCrossingInfoCard

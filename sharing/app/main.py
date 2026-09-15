@@ -26,21 +26,42 @@ Shared lists (place folders) have no expiry at all, deliberately — unlike
 a live location, a saved list of places isn't inherently ephemeral, and
 Naver's own version doesn't expire them either. They persist until their
 owner explicitly deletes them.
+
+Profiles (added 2026-09-15, see docs/research/14-naver-kakao-profile-
+systems.md) are the one exception to "no accounts" above — the first
+feature in this app needing real identity rather than a device-local
+preference or a shareable code. Deliberately NOT a Naver/Kakao-style
+account system: this app is iOS-only, so the deciding factor is Apple's
+own App Store Review Guideline 4.8, not either platform's approach — Sign
+in with Apple is the *only* sign-in method, which sidesteps 4.8 entirely
+(it only applies when a *third-party* login sits alongside it) and needs
+no password storage, no separate multi-scope consent UI to build, and no
+email-verification flow of our own. A profile is keyed directly by
+Apple's own stable per-app user identifier (the identity token's `sub`
+claim) — this service never sees or stores the user's real Apple ID
+email. Session model is the same "random bearer secret" trust pattern as
+every other table here (location_shares' code, a hazard report's
+delete_token): verify the Apple identity token once, mint an opaque
+session token, and use that for every request after — cheaper than
+re-verifying a JWT against Apple's JWKS on every single API call.
 """
 
 import json
 import os
 import secrets
 import string
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import jwt
 import psycopg2
 import psycopg2.errors
 import psycopg2.extras
-from fastapi import FastAPI, HTTPException, Query, Request
+import requests
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -529,6 +550,272 @@ def list_corrections(request: Request, status: Literal["pending", "approved", "r
                 for r in rows
             ]
         }
+    finally:
+        conn.close()
+
+
+APPLE_ISSUER = "https://appleid.apple.com"
+APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
+# The app's real bundle id (confirmed via `xcrun simctl listapps` against
+# the running Simulator) — Sign in with Apple's identity token sets `aud`
+# to this, and rejecting anything else is what stops a token minted for a
+# *different* app from being replayed against this service.
+APPLE_BUNDLE_ID = os.environ.get("APPLE_BUNDLE_ID", "org.reactjs.native.example.BelizeMap")
+# Apple rotates its signing keys infrequently — refetching on every sign-in
+# would be one avoidable outbound request per login for keys that are, in
+# practice, stable for days at a time. A process-local cache with a plain
+# TTL (no need for anything fancier — this service is one process, same
+# reasoning as the in-memory rate limiter above) keeps that cost near zero
+# while still picking up a real rotation within a day.
+APPLE_KEYS_CACHE_TTL = timedelta(hours=24)
+_apple_keys_cache: dict | None = None
+_apple_keys_fetched_at: datetime | None = None
+
+
+def get_apple_public_keys() -> dict:
+    global _apple_keys_cache, _apple_keys_fetched_at
+    now = datetime.now(timezone.utc)
+    if _apple_keys_cache is None or _apple_keys_fetched_at is None or now - _apple_keys_fetched_at > APPLE_KEYS_CACHE_TTL:
+        resp = requests.get(APPLE_KEYS_URL, timeout=10)
+        resp.raise_for_status()
+        _apple_keys_cache = {key["kid"]: key for key in resp.json()["keys"]}
+        _apple_keys_fetched_at = now
+    return _apple_keys_cache
+
+
+def verify_apple_identity_token(identity_token: str) -> str:
+    """Verifies a Sign in with Apple identity token against Apple's own
+    published public keys and returns the stable per-app user id (the
+    `sub` claim) — the only thing this service uses to identify a user,
+    never the token's (optional, and possibly-relayed) email claim.
+    Raises HTTPException(401) for anything that doesn't check out: wrong
+    signature, wrong audience/issuer, or expired — deliberately not more
+    specific than that in the response, so a malformed/forged token can't
+    be used to probe which specific check it failed."""
+    try:
+        unverified_header = jwt.get_unverified_header(identity_token)
+        kid = unverified_header.get("kid")
+        keys = get_apple_public_keys()
+        jwk = keys.get(kid)
+        if jwk is None:
+            # A real rotation could plausibly land here — refresh once
+            # before giving up, rather than forcing every currently-signed-
+            # in user to wait out the full cache TTL after a key rotation.
+            global _apple_keys_cache
+            _apple_keys_cache = None
+            keys = get_apple_public_keys()
+            jwk = keys.get(kid)
+        if jwk is None:
+            raise HTTPException(401, "Invalid identity token")
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
+        claims = jwt.decode(
+            identity_token,
+            key=public_key,
+            algorithms=["RS256"],
+            audience=APPLE_BUNDLE_ID,
+            issuer=APPLE_ISSUER,
+        )
+        return claims["sub"]
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(401, "Invalid identity token") from None
+
+
+def generate_session_token() -> str:
+    # Same reasoning as generate_delete_token above — a bearer secret the
+    # app stores and replays, never something a person reads/types, so
+    # secrets.token_urlsafe's full alphabet (not the 6-char share/list
+    # code's constrained one) is the right tool.
+    return secrets.token_urlsafe(32)
+
+
+def get_current_apple_user_id(authorization: str | None = Header(default=None)) -> str:
+    """FastAPI dependency: resolves a request's `Authorization: Bearer
+    <sessionToken>` header to the apple_user_id it belongs to, or raises
+    401. Every profile-mutating endpoint below depends on this rather than
+    trusting an id the client could otherwise just pass in the body —
+    the session token is the only thing that proves who's asking."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Missing or malformed Authorization header")
+    token = authorization.removeprefix("Bearer ")
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT apple_user_id FROM profile_sessions WHERE token = %s", (token,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(401, "Invalid or signed-out session")
+            return row[0]
+    finally:
+        conn.close()
+
+
+# A small, fixed set of Belize-themed emoji avatars rather than an uploaded
+# photo — see docs/research/14-naver-kakao-profile-systems.md's own
+# conclusion (start at lightweight identity, not Naver/Kakao's years-deep
+# reviewer economy) and mobile/README.md's Profile section for the full
+# reasoning. Enforced server-side (not just in the mobile UI's picker) so
+# PUT /profile can't be used to stash an arbitrary string in this field.
+AVATAR_EMOJI_CHOICES = ["🧭", "🐢", "🦜", "🦞", "🐬", "🌴", "🏝️", "⛵", "🦋", "🐆"]
+DEFAULT_AVATAR_EMOJI = AVATAR_EMOJI_CHOICES[0]
+
+
+def generate_default_nickname() -> str:
+    # A friendly, anonymous-by-default starting nickname — matches this
+    # app not asking for a real name anywhere else either (Sign in with
+    # Apple's own `name` claim is deliberately never requested, see the
+    # AppleSignInBody/sign-in flow below). Purely cosmetic collisions
+    # between two users both landing on "Explorer 4821" are fine — this is
+    # a display nickname, not an identifier.
+    return f"Explorer {secrets.randbelow(9000) + 1000}"
+
+
+class AppleSignInBody(BaseModel):
+    identity_token: str = Field(alias="identityToken", max_length=4096)
+
+    class Config:
+        populate_by_name = True
+
+
+def _row_to_profile_response(row) -> dict:
+    return {
+        "nickname": row["nickname"],
+        "avatarEmoji": row["avatar_emoji"],
+        "memberSince": row["created_at"].isoformat(),
+    }
+
+
+@app.post("/auth/apple")
+@limiter.limit(MUTATE_LIMIT)
+def sign_in_with_apple(request: Request, body: AppleSignInBody):
+    """Verifies the identity token Apple's own native Sign in with Apple
+    flow returned to the client, then either finds the matching profile
+    or creates one on the spot — there's no separate "create account"
+    step; the first successful sign-in *is* account creation, same as the
+    real Sign in with Apple UX everywhere else it's used."""
+    apple_user_id = verify_apple_identity_token(body.identity_token)
+    now = datetime.now(timezone.utc)
+    conn = get_conn()
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT nickname, avatar_emoji, created_at FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
+            row = cur.fetchone()
+            if row is None:
+                cur.execute(
+                    "INSERT INTO profiles (apple_user_id, nickname, avatar_emoji, created_at, updated_at) "
+                    "VALUES (%s, %s, %s, %s, %s) RETURNING nickname, avatar_emoji, created_at",
+                    (apple_user_id, generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
+                )
+                row = cur.fetchone()
+            token = generate_session_token()
+            cur.execute(
+                "INSERT INTO profile_sessions (token, apple_user_id, created_at) VALUES (%s, %s, %s)",
+                (token, apple_user_id, now),
+            )
+        return {"sessionToken": token, "profile": _row_to_profile_response(row)}
+    finally:
+        conn.close()
+
+
+@app.delete("/auth/session")
+@limiter.limit(MUTATE_LIMIT)
+def sign_out(request: Request, authorization: str | None = Header(default=None)):
+    """Signs out *this device only* — deletes just the session token this
+    request authenticated with, leaving any other signed-in device's
+    session (and the profile itself) untouched. Deliberately tolerant of
+    a missing/already-invalid token (signing out twice, or after the
+    token already expired some other way, should never itself be an
+    error) rather than depending on get_current_apple_user_id, which
+    would 401 on exactly the "already signed out" case this needs to
+    handle gracefully."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return {"ok": True}
+    token = authorization.removeprefix("Bearer ")
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM profile_sessions WHERE token = %s", (token,))
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.get("/profile")
+@limiter.limit(POLL_LIMIT)
+def get_profile(request: Request, apple_user_id: str = Depends(get_current_apple_user_id)):
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT nickname, avatar_emoji, created_at FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Profile not found")
+        return _row_to_profile_response(row)
+    finally:
+        conn.close()
+
+
+class UpdateProfileBody(BaseModel):
+    nickname: str | None = Field(default=None, min_length=1, max_length=24)
+    avatar_emoji: str | None = Field(default=None, alias="avatarEmoji")
+
+    class Config:
+        populate_by_name = True
+
+    @field_validator("nickname")
+    @classmethod
+    def nickname_must_have_visible_content(cls, v: str | None) -> str | None:
+        # min_length=1 alone still lets a nickname of pure whitespace
+        # through (a single space passes it) — trim first, then re-check,
+        # so this can't produce a nickname that displays as blank.
+        if v is None:
+            return v
+        trimmed = v.strip()
+        if not trimmed:
+            raise ValueError("Nickname can't be blank")
+        return trimmed
+
+
+@app.put("/profile")
+@limiter.limit(MUTATE_LIMIT)
+def update_profile(request: Request, body: UpdateProfileBody, apple_user_id: str = Depends(get_current_apple_user_id)):
+    if body.avatar_emoji is not None and body.avatar_emoji not in AVATAR_EMOJI_CHOICES:
+        raise HTTPException(400, "Not a valid avatar choice")
+    if body.nickname is None and body.avatar_emoji is None:
+        raise HTTPException(400, "Nothing to update")
+    now = datetime.now(timezone.utc)
+    conn = get_conn()
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "UPDATE profiles SET "
+                "nickname = COALESCE(%s, nickname), "
+                "avatar_emoji = COALESCE(%s, avatar_emoji), "
+                "updated_at = %s "
+                "WHERE apple_user_id = %s "
+                "RETURNING nickname, avatar_emoji, created_at",
+                (body.nickname, body.avatar_emoji, now, apple_user_id),
+            )
+            row = cur.fetchone()
+        return _row_to_profile_response(row)
+    finally:
+        conn.close()
+
+
+@app.delete("/profile")
+@limiter.limit(MUTATE_LIMIT)
+def delete_profile(request: Request, apple_user_id: str = Depends(get_current_apple_user_id)):
+    """Full account deletion — required by App Store Review Guideline
+    5.1.1(v) since this app offers account creation, so it must also let
+    a user delete that account from within the app, not just stop using
+    it. ON DELETE CASCADE on profile_sessions.apple_user_id means this
+    also signs the user out of every device in the same statement."""
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
+        return {"ok": True}
     finally:
         conn.close()
 

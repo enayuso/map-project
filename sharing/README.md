@@ -20,14 +20,31 @@ No login, no friend graph — a share is just a random 6-character code (`create
 
 Every other backend piece in this project is a proven, self-hosted OSS tool (Nominatim, Typesense, Valhalla, Martin) — deliberately, per this project's own established pattern of reaching for a real tool before writing custom code. This one's different on purpose: the actual logic here (four small endpoints over one Postgres table) is genuinely too small to justify standing up unfamiliar new infrastructure just to keep that pattern intact — e.g. Redis + a Redis-to-HTTP bridge (`webdis`) would be two brand-new pieces of infrastructure this project has never touched, in service of a feature this size. A small [FastAPI](https://fastapi.tiangolo.com/) app (MIT-licensed, consistent with Locked Decision 4) reusing the **same** `belize` Postgres database every other service already writes to was the simpler choice in practice, not just in principle.
 
+## User profiles (added 2026-09-15) — the one thing here that *is* a real account
+
+Everything above shares one deliberate trait: **no accounts, no real authentication** — a random code or bearer secret is the entire access model. Profiles are the exception, and the first feature in this app needing real identity. See [docs/research/14-naver-kakao-profile-systems.md](../docs/research/14-naver-kakao-profile-systems.md) for the research this is built from; the short version: **Sign in with Apple only**, not a Naver/Kakao-style account — this app is iOS-only, so the deciding factor is Apple's own App Store Review Guideline 4.8, not either Korean platform's own approach. Offering only Sign in with Apple sidesteps 4.8 entirely (it's only triggered when a *third-party* login sits alongside Apple's own), needs no password storage of our own, and no separate multi-scope consent UI to build (unlike Kakao Login's field-by-field model, per that research doc).
+
+A profile is keyed directly by Apple's own stable per-app user identifier (the identity token's `sub` claim) — this service never sees or stores a real Apple ID or email. Flow:
+
+1. The mobile app runs Apple's native Sign in with Apple UI, gets back a signed **identity token**.
+2. `POST /auth/apple` (`{identityToken}`) verifies it against Apple's own published public keys (fetched live from `https://appleid.apple.com/auth/keys`, cached in-process for 24h — Apple's keys rotate infrequently, and refetching on every sign-in would be one avoidable outbound request per login) and checks `iss`/`aud`/`exp`/signature. First-ever sign-in for a given Apple user id *is* account creation — no separate signup step. Returns an opaque **session token** (a bearer secret, same trust model as every other code/token in this service) plus the profile.
+3. Every other `/profile*` endpoint takes that session token as `Authorization: Bearer <token>` — cheap to check (one Postgres lookup) versus re-verifying a JWT against Apple's JWKS on every request.
+
+**Profile customization, v1**: a nickname (default "Explorer ####", editable, 1-24 chars) and a pick from a small fixed set of Belize-themed emoji avatars (🧭🐢🦜🦞🐬🌴🏝️⛵🦋🐆) — enforced server-side, not just in the mobile picker. Deliberately **not** an uploaded photo: the research doc's own conclusion was to start at lightweight identity, not copy Naver/Kakao's years-deep reviewer-grade/badge/creator economy. A real photo avatar (the research doc worked through the `bytea`-vs-Cloudflare-R2 storage tradeoff already) is a clean future addition to the same `profiles` table, not a redesign — not built now because nothing would exercise it yet.
+
+**Account deletion** (`DELETE /profile`) exists because Apple requires it — [App Store Review Guideline 5.1.1(v)](https://developer.apple.com/app-store/review/guidelines/#5.1.1) mandates that any app offering account creation must also let a user delete that account from within the app, not just stop using it. `ON DELETE CASCADE` on `profile_sessions.apple_user_id` means it also signs the account out of every device in the same statement.
+
+**Verified directly against the running service** (not just code-reviewed): confirmed the container genuinely reaches Apple's live JWKS endpoint and parses real signing keys; confirmed a garbage/forged identity token is rejected (401) with no stack trace leaked; confirmed the full profile CRUD path (get/update nickname with whitespace-trimming/blank-rejection/reject-invalid-avatar, sign-out being idempotent and tolerant of a missing header, account deletion cascading to sessions) against seeded rows in the real Postgres table. **Not yet verified**: an actual real Apple-signed identity token end-to-end, which needs the full native mobile build (Xcode "Sign in with Apple" capability + entitlement, `pod install`, a real device or Simulator signed into an Apple ID) — see `mobile/README.md`'s Profile section for exactly what that still needs from you specifically (an Apple Developer account action, not something committable to this repo).
+
 ## Setup
 
-1. All four tables must exist in the shared `belize` database first (one-time, same pattern as every other schema change in this project):
+1. All six tables must exist in the shared `belize` database first (one-time, same pattern as every other schema change in this project):
    ```bash
    scripts/create_location_shares_table.sh
    scripts/create_shared_lists_table.sh
    scripts/create_hazard_reports_table.sh
    scripts/create_poi_corrections_table.sh
+   scripts/create_profiles_table.sh
    ```
 2. Start the service (joins the Phase 1 backend's Docker network to reach `postgis` by hostname, same as `search/` and `geocoding/`):
    ```bash
@@ -56,6 +73,11 @@ Every other backend piece in this project is a proven, self-hosted OSS tool (Nom
 | `GET /ferry-routes` | Returns the curated water-taxi/ferry route list — read straight from `data/ferry_routes.json`, not a database. |
 | `GET /dive-sites` | Returns the curated dive-site list — read straight from `data/dive_sites.json`, not a database. |
 | `GET /border-crossings` | Returns the curated border-crossing info (hours/fees/documents/scam warnings) — read straight from `data/border_crossings.json`, not a database. |
+| `POST /auth/apple` — body `{identityToken}` | Verifies an Apple Sign in with Apple identity token; creates a profile on first sign-in. Returns `{sessionToken, profile}`. 401 if the token doesn't check out. |
+| `DELETE /auth/session` | Signs out this device only (deletes the session token in the `Authorization: Bearer` header). Always `{ok: true}`, even with no/an invalid token — signing out is never itself an error. |
+| `GET /profile` (auth) | Returns `{nickname, avatarEmoji, memberSince}` for the signed-in profile. |
+| `PUT /profile` (auth) — body `{nickname?, avatarEmoji?}` | Updates the nickname (trimmed, 1-24 chars) and/or avatar (must be one of the fixed emoji choices — see main.py's `AVATAR_EMOJI_CHOICES`). 400 if neither is given or the avatar isn't a valid choice. |
+| `DELETE /profile` (auth) | Deletes the account entirely — required by App Store Guideline 5.1.1(v). Cascades to every session for this profile. |
 | `GET /health` | `{ok: true}` |
 
 Approving/rejecting a POI correction is **not** an HTTP endpoint — see `scripts/review_poi_corrections.py`, run locally against this same container:
