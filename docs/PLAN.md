@@ -223,6 +223,8 @@ Nothing left unbuilt on this shortlist except what's tracked in "Noted for later
 
 Deferred/lower priority from the same research: AR walk overlay, booking-marketplace features, Timeline/location history (overlaps the deferred account system), currency/tipping card, CarPlay, Apple Watch companion app (both "large" stand-alone native sub-projects, no mature MapLibre path for either).
 
+**Follow-up (2026-09-15)**: before building the long-deferred user-profile/account system, did a thorough live-research pass into how Naver and Kakao actually handle profiles — creation, customization, and the backend/data side — see [research/14-naver-kakao-profile-systems.md](research/14-naver-kakao-profile-systems.md). Headline recommendation: don't copy either wholesale. Their reviewer-grade/badge/multi-profile/fake-review-detection systems solve trust-and-scale problems from national-platform-size usage this app doesn't have. What actually transfers now: **Sign in with Apple** (not a Kakao/Naver-style login — the deciding factor is Apple's own App Store Review Guideline 4.8, not either Korean platform's approach, since this app is iOS-only) plus a small `profiles` row (nickname, optional avatar, member-since date) in the existing `belize` Postgres, extending the same lightweight-FastAPI-service pattern `sharing/` already established rather than introducing new infrastructure. Not yet built — this was research only, implementation is a separate future step.
+
 **Follow-up (2026-09-10)**: Belize's National Meteorological Service (nms.gov.bz) does not offer a real-time weather API — see [mobile/README.md](../mobile/README.md)'s Weather section. Open-Meteo remains the right choice.
 
 ---
