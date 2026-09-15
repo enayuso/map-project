@@ -23,11 +23,27 @@
 # email_verified defaults TRUE — correct for an Apple sign-in (no email to
 # verify at all) and explicitly overridden to FALSE by /auth/signup for a
 # fresh email/password account, which is the only path that actually needs
-# the email_verification_codes table below. One pending code per profile
-# (a resend just overwrites it — a fresh code should always invalidate the
-# last one, not create a second live one) with its own expiry and an
-# attempts counter (caps guesses against a 6-digit code within its
-# lifetime, on top of the endpoint's own rate limit).
+# the email_verification_codes table below. One pending code per profile,
+# with a real security model researched from a production reference
+# (the reference system's own magic-link/code system, see mobile/README.md's Profile
+# section for the full writeup) rather than invented from scratch:
+# - attempts: wrong guesses against *this* code — capped, and the code is
+#   discarded once exceeded (see main.py's MAX_VERIFY_ATTEMPTS).
+# - send_count/last_sent_at: how many times *this* code has been emailed
+#   and when — caps resend spam (MAX_CODE_SENDS) and enforces a cooldown
+#   between resends (CODE_RESEND_COOLDOWN), independent of `attempts`.
+#   A resend of a still-valid code reuses the SAME code and does NOT touch
+#   `attempts` — regenerating the code (and resetting attempts) on every
+#   resend, which is what an earlier version of this table did, is exactly
+#   the loophole a resend-then-retry loop would use to bypass the
+#   per-code attempts cap entirely.
+# - window_started_at/window_attempts: a *second*, independent budget on
+#   wrong guesses — cumulative per email over a rolling time window
+#   (main.py's EMAIL_CODE_ATTEMPT_WINDOW/EMAIL_CODE_ATTEMPT_BUDGET), which
+#   deliberately does NOT reset when attempts/the code itself does. This
+#   is what actually closes the loophole above at the root: even a
+#   genuinely fresh code (after real expiry) can't reset how many wrong
+#   guesses this email has spent recently — only the wall clock can.
 #
 # No avatar-image column on purpose: v1 profile customization is a
 # nickname plus a pick from a small fixed set of Belize-themed emoji
@@ -35,11 +51,11 @@
 # for the reasoning.
 #
 # NOTE (re-run from scratch, 2026-09-15): confirmed zero real rows existed
-# in any of these tables before adding email_verified/
-# email_verification_codes (no Apple sign-in has completed past the paid-
-# account wall, and the only email/password rows ever created were this
-# session's own live-tested-then-deleted test account) — dropping and
-# recreating, not a migration, since there was nothing real to migrate.
+# in any of these tables before this change (or the email_verified one
+# before it) — no Apple sign-in has completed past the paid-account wall,
+# and the only email/password rows ever created were this session's own
+# live-tested-then-deleted test accounts — dropping and recreating, not a
+# migration, since there was nothing real to migrate.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -70,7 +86,11 @@ CREATE TABLE email_verification_codes (
   profile_id TEXT PRIMARY KEY REFERENCES profiles (id) ON DELETE CASCADE,
   code TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0
+  attempts INTEGER NOT NULL DEFAULT 0,
+  send_count INTEGER NOT NULL DEFAULT 1,
+  last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  window_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  window_attempts INTEGER NOT NULL DEFAULT 0
 );
 "
 

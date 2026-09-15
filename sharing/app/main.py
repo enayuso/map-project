@@ -724,6 +724,28 @@ EMAIL_VERIFICATION_TTL = timedelta(minutes=15)
 # guesses regardless of where the requests came from.
 MAX_VERIFY_ATTEMPTS = 5
 
+# A second, independent budget on top of MAX_VERIFY_ATTEMPTS — researched
+# from a production reference (the reference system's own magic-link/code system, see
+# mobile/README.md's Profile section) rather than invented from scratch.
+# MAX_VERIFY_ATTEMPTS alone has a real hole: request a fresh code (which
+# resets the per-code counter) and the previous wrong guesses are forgotten
+# — repeat indefinitely and the per-code cap never actually stops anything.
+# This tracks wrong guesses *cumulatively per email*, in a rolling window
+# that only the wall clock resets, independent of how many codes were
+# issued or resent within it — closing that hole at the root rather than
+# tightening the per-code number further (which wouldn't help; the hole is
+# that resetting is possible at all, not that 5 is too generous).
+EMAIL_CODE_ATTEMPT_WINDOW = timedelta(minutes=15)
+EMAIL_CODE_ATTEMPT_BUDGET = 10
+
+# Caps how many times *one* code can be resent (emailed again unchanged)
+# and enforces a cooldown between resends — independent of, and checked
+# before, MAX_VERIFY_ATTEMPTS/EMAIL_CODE_ATTEMPT_BUDGET above. See
+# issue_verification_code's own comment for why a resend reuses the
+# existing code rather than minting a new one.
+MAX_CODE_SENDS = 5
+CODE_RESEND_COOLDOWN = timedelta(seconds=30)
+
 # Resend (https://resend.com) — chosen after checking current free-tier
 # options: 3,000 emails/month, permanently free (not a trial), a plain
 # HTTP API needing no new Python dependency (requests, already added for
@@ -779,17 +801,35 @@ def send_verification_email(to_email: str, code: str) -> None:
 
 
 def issue_verification_code(cur, profile_id: str, email: str) -> None:
-    """Generates a fresh code, stores it (replacing any still-pending one
-    for this profile — a resend should always invalidate the last code,
-    never leave two simultaneously valid), and sends it. Takes an open
-    cursor rather than its own connection so callers (sign_up,
-    resend_verification) can do this as part of their own transaction."""
+    """Generates a genuinely fresh code — new value, attempts and
+    send_count both reset — replacing any previous pending code for this
+    profile. Used for a signup's very first code, and for a resend when
+    the previous code had already expired (or never existed). Takes an
+    open cursor rather than its own connection so callers can do this as
+    part of their own transaction.
+
+    Deliberately NOT used for resending a code that's still valid — see
+    resend_verification, which reuses the existing code instead of calling
+    this. Rotating the code on every resend (an earlier version of this
+    function did exactly that) quietly resets `attempts` too, letting a
+    resend-then-retry loop bypass MAX_VERIFY_ATTEMPTS as many times as
+    resends are allowed.
+
+    window_started_at/window_attempts are deliberately left untouched here
+    (not listed in the ON CONFLICT SET) — seeing EMAIL_CODE_ATTEMPT_BUDGET's
+    own comment for why that cumulative counter is scoped to wall-clock
+    time, not to any one code's lifecycle: resetting it on every fresh
+    code would reopen the exact hole that counter exists to close."""
     code = generate_verification_code()
-    expires_at = datetime.now(timezone.utc) + EMAIL_VERIFICATION_TTL
+    now = datetime.now(timezone.utc)
+    expires_at = now + EMAIL_VERIFICATION_TTL
     cur.execute(
-        "INSERT INTO email_verification_codes (profile_id, code, expires_at, attempts) VALUES (%s, %s, %s, 0) "
-        "ON CONFLICT (profile_id) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, attempts = 0",
-        (profile_id, code, expires_at),
+        "INSERT INTO email_verification_codes (profile_id, code, expires_at, attempts, send_count, last_sent_at) "
+        "VALUES (%s, %s, %s, 0, 1, %s) "
+        "ON CONFLICT (profile_id) DO UPDATE SET "
+        "code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, attempts = 0, "
+        "send_count = 1, last_sent_at = EXCLUDED.last_sent_at",
+        (profile_id, code, expires_at, now),
     )
     send_verification_email(email, code)
 
@@ -1033,7 +1073,36 @@ def resend_verification(request: Request, profile_id: str = Depends(get_current_
                 # meantime, e.g. from another device) shouldn't surface as
                 # a failure.
                 return {"ok": True}
-            issue_verification_code(cur, profile_id, row["email"])
+
+            cur.execute(
+                "SELECT code, expires_at, send_count, last_sent_at FROM email_verification_codes WHERE profile_id = %s",
+                (profile_id,),
+            )
+            pending = cur.fetchone()
+            now = datetime.now(timezone.utc)
+
+            if pending and now <= pending["expires_at"]:
+                # A still-valid code exists — resend that exact code
+                # rather than minting a new one (see
+                # issue_verification_code's own comment for why: rotating
+                # it here would reset `attempts` too, letting a resend-
+                # then-retry loop bypass MAX_VERIFY_ATTEMPTS indefinitely).
+                # This resend gets its own, separate limits instead.
+                if now - pending["last_sent_at"] < CODE_RESEND_COOLDOWN:
+                    raise HTTPException(429, "Please wait a moment before requesting another code")
+                if pending["send_count"] >= MAX_CODE_SENDS:
+                    raise HTTPException(400, "Too many resend requests for this code — wait for it to expire, then request a new one")
+                cur.execute(
+                    "UPDATE email_verification_codes SET send_count = send_count + 1, last_sent_at = %s WHERE profile_id = %s",
+                    (now, profile_id),
+                )
+                send_verification_email(row["email"], pending["code"])
+            else:
+                # No pending code, or the previous one genuinely expired —
+                # a real fresh start (new code, reset per-code attempts and
+                # send_count; the cumulative per-email window below is
+                # untouched, on purpose, by issue_verification_code).
+                issue_verification_code(cur, profile_id, row["email"])
         return {"ok": True}
     finally:
         conn.close()
@@ -1050,26 +1119,52 @@ def verify_email(request: Request, body: VerifyEmailBody, profile_id: str = Depe
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT code, expires_at, attempts FROM email_verification_codes WHERE profile_id = %s",
+                "SELECT code, expires_at, attempts, window_started_at, window_attempts "
+                "FROM email_verification_codes WHERE profile_id = %s",
                 (profile_id,),
             )
             pending = cur.fetchone()
         if not pending:
             raise HTTPException(400, "No pending verification code — request a new one")
+
+        now = datetime.now(timezone.utc)
+        window_attempts = pending["window_attempts"]
+
+        # The cumulative per-email budget is scoped to wall-clock time, not
+        # to this one code — reset it (its own commit, before any of the
+        # checks below that might raise) once the window has genuinely
+        # elapsed, same "don't let a later raise roll this back" reasoning
+        # as the wrong-code branch further down.
+        if now - pending["window_started_at"] > EMAIL_CODE_ATTEMPT_WINDOW:
+            window_attempts = 0
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE email_verification_codes SET window_started_at = %s, window_attempts = 0 WHERE profile_id = %s",
+                    (now, profile_id),
+                )
+
+        # Checked before the per-code cap below: this is the *outer*,
+        # more restrictive budget (see EMAIL_CODE_ATTEMPT_BUDGET's own
+        # comment) — once it's spent, a fresh code doesn't help, so the
+        # message says so explicitly rather than the per-code message's
+        # "request a new code," which would be true but useless advice here.
+        if window_attempts >= EMAIL_CODE_ATTEMPT_BUDGET:
+            raise HTTPException(400, "Too many incorrect attempts recently — wait a while before trying again")
         if pending["attempts"] >= MAX_VERIFY_ATTEMPTS:
             raise HTTPException(400, "Too many attempts — request a new code")
-        if datetime.now(timezone.utc) > pending["expires_at"]:
+        if now > pending["expires_at"]:
             raise HTTPException(400, "That code expired — request a new one")
         if body.code != pending["code"]:
             # Committed in its own block, separate from the HTTPException
             # raised right after — raising *inside* a `with conn:` block
             # rolls the whole thing back, which would silently discard
-            # this increment along with it. The success path below has no
-            # such problem (nothing raises after its writes), but this one
-            # does, so it gets the extra care.
+            # these increments along with it. The success path below has
+            # no such problem (nothing raises after its writes), but this
+            # one does, so it gets the extra care.
             with conn, conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE email_verification_codes SET attempts = attempts + 1 WHERE profile_id = %s",
+                    "UPDATE email_verification_codes SET attempts = attempts + 1, window_attempts = window_attempts + 1 "
+                    "WHERE profile_id = %s",
                     (profile_id,),
                 )
             raise HTTPException(400, "Incorrect code")
