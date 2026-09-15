@@ -19,6 +19,11 @@ export type Profile = {
   nickname: string;
   avatarEmoji: string;
   memberSince: string;
+  /** Always true for a Sign in with Apple profile (nothing to verify —
+   * this service never even sees an email for one) — only meaningfully
+   * false right after an email/password signup, until the code sent to
+   * that address is entered. */
+  emailVerified: boolean;
 };
 
 export type SignedIn = { sessionToken: string; profile: Profile };
@@ -44,29 +49,29 @@ async function parseOrThrow<T>(res: Response): Promise<T> {
   return res.json();
 }
 
-/** Sign-up/log-in specifically need the server's own human-readable
- * message (a duplicate email, an incorrect password, a too-short
- * password) shown directly to the user, not folded into a generic
- * "Profile service 409" — FastAPI's error body is either
+/** Sign-up/log-in/verify-email specifically need the server's own human-
+ * readable message (a duplicate email, an incorrect password, an
+ * incorrect verification code) shown directly to the user, not folded
+ * into a generic "Profile service 409" — FastAPI's error body is either
  * `{detail: string}` (a plain HTTPException, e.g. "Incorrect email or
  * password") or `{detail: [{msg: string, ...}, ...]}` (a Pydantic
  * validation failure, e.g. a too-short password) — this normalizes
  * either shape to one message string. */
-async function parseAuthResponse(res: Response): Promise<SignedIn> {
-  if (res.ok) return res.json();
-  let message = `Could not complete that (${res.status}).`;
+async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const body = await res.json();
-    if (typeof body.detail === 'string') {
-      message = body.detail;
-    } else if (Array.isArray(body.detail) && typeof body.detail[0]?.msg === 'string') {
-      message = body.detail[0].msg;
-    }
+    if (typeof body.detail === 'string') return body.detail;
+    if (Array.isArray(body.detail) && typeof body.detail[0]?.msg === 'string') return body.detail[0].msg;
   } catch {
-    // Response body wasn't JSON (or was empty) — fall back to the
-    // generic message above rather than throwing a second error here.
+    // Response body wasn't JSON (or was empty) — fall back to the caller's
+    // generic message below rather than throwing a second error here.
   }
-  throw new Error(message);
+  return fallback;
+}
+
+async function parseAuthResponse(res: Response): Promise<SignedIn> {
+  if (res.ok) return res.json();
+  throw new Error(await extractErrorMessage(res, `Could not complete that (${res.status}).`));
 }
 
 function authHeaders(sessionToken: string): Record<string, string> {
@@ -115,6 +120,25 @@ export async function updateProfile(
     body: JSON.stringify(updates),
   });
   return parseOrThrow(res);
+}
+
+export async function verifyEmailCode(sessionToken: string, code: string): Promise<void> {
+  const res = await fetch(`${SHARING_URL}/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(sessionToken) },
+    body: JSON.stringify({ code }),
+  });
+  if (res.status === 401) throw new ProfileAuthError('Signed out');
+  if (!res.ok) throw new Error(await extractErrorMessage(res, `Could not verify that code (${res.status}).`));
+}
+
+export async function resendVerificationCode(sessionToken: string): Promise<void> {
+  const res = await fetch(`${SHARING_URL}/auth/resend-verification`, {
+    method: 'POST',
+    headers: authHeaders(sessionToken),
+  });
+  if (res.status === 401) throw new ProfileAuthError('Signed out');
+  if (!res.ok) throw new Error(await extractErrorMessage(res, `Could not resend the code (${res.status}).`));
 }
 
 export async function signOutSession(sessionToken: string): Promise<void> {

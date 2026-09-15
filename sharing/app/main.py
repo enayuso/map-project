@@ -117,6 +117,7 @@ MUTATE_LIMIT = "10/minute"  # creating/deleting a share, list, hazard report, co
 POLL_LIMIT = "30/minute"  # reading/updating an active location share or list
 STATIC_LIMIT = "20/minute"  # ferry/dive-site/border-crossing content, fetched ~once per session
 AUTH_LIMIT = "5/minute"  # sign-up/log-in/Apple sign-in attempts — tighter than a plain mutation specifically to slow down password-guessing against /auth/login
+VERIFY_LIMIT = "5/minute"  # code-verify/resend attempts — same reasoning as AUTH_LIMIT, applied to guessing a 6-digit code instead of a password
 
 
 def get_conn():
@@ -709,6 +710,90 @@ def generate_default_nickname() -> str:
     return f"Explorer {secrets.randbelow(9000) + 1000}"
 
 
+# Email verification (added 2026-09-15, same day as email/password itself)
+# — a 6-digit code, not a clickable link: this app has no hosted web page
+# to land a link on and no deep-linking set up, so a code the user reads
+# from their inbox and types back into the app is the simpler fit, not
+# just the more common one.
+EMAIL_VERIFICATION_TTL = timedelta(minutes=15)
+# Caps guesses against a 6-digit code (1,000,000 possibilities) within its
+# own lifetime — VERIFY_LIMIT's 5/minute already slows this a lot, but a
+# per-code attempt cap is a second, independent backstop that survives
+# even if someone found a way around the per-IP rate limit (a botnet, a
+# rotating proxy) — the code becomes unusable after this many wrong
+# guesses regardless of where the requests came from.
+MAX_VERIFY_ATTEMPTS = 5
+
+# Resend (https://resend.com) — chosen after checking current free-tier
+# options: 3,000 emails/month, permanently free (not a trial), a plain
+# HTTP API needing no new Python dependency (requests, already added for
+# Apple's JWKS fetch, is enough). Real caveat, confirmed before assuming
+# it: without verifying your own domain with Resend, its shared
+# onboarding@resend.dev sender can only deliver to the email address the
+# Resend account itself signed up with — not to arbitrary real users. Fine
+# for dev/testing (this project's current stated scope for the whole
+# profile feature); real delivery to real users needs that domain
+# verification step later, done in your own Resend account, not something
+# committable to this repo.
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+
+
+def generate_verification_code() -> str:
+    # secrets.randbelow, not random — this code is a real (if short-lived)
+    # access credential, same reasoning as every other secrets.choice/
+    # token_urlsafe use in this file. Zero-padded to 6 digits — a code
+    # like "004821" is exactly as valid as "984821", both equally likely.
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def send_verification_email(to_email: str, code: str) -> None:
+    """Best-effort — a failed send here doesn't fail signup/resend, since
+    the user can always request another code once whatever's wrong (a
+    missing API key during dev, a transient Resend error) is sorted out."""
+    if not RESEND_API_KEY:
+        # Dev fallback: no RESEND_API_KEY configured at all yet — print the
+        # code server-side (visible via `docker logs belize-sharing`,
+        # already how this service is monitored elsewhere) instead of
+        # emailing it, so the whole verification flow is fully testable
+        # with zero external accounts. See this function's own module-level
+        # comment above for what real delivery still needs.
+        print(f"[dev-fallback] email verification code for {to_email}: {code}")
+        return
+    try:
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            json={
+                "from": RESEND_FROM_EMAIL,
+                "to": [to_email],
+                "subject": "Your Belize Map verification code",
+                "text": f"Your verification code is {code}. It expires in 15 minutes.",
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            print(f"[verification email] Resend returned {resp.status_code} for {to_email}: {resp.text}")
+    except requests.RequestException as e:
+        print(f"[verification email] failed to reach Resend for {to_email}: {e}")
+
+
+def issue_verification_code(cur, profile_id: str, email: str) -> None:
+    """Generates a fresh code, stores it (replacing any still-pending one
+    for this profile — a resend should always invalidate the last code,
+    never leave two simultaneously valid), and sends it. Takes an open
+    cursor rather than its own connection so callers (sign_up,
+    resend_verification) can do this as part of their own transaction."""
+    code = generate_verification_code()
+    expires_at = datetime.now(timezone.utc) + EMAIL_VERIFICATION_TTL
+    cur.execute(
+        "INSERT INTO email_verification_codes (profile_id, code, expires_at, attempts) VALUES (%s, %s, %s, 0) "
+        "ON CONFLICT (profile_id) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, attempts = 0",
+        (profile_id, code, expires_at),
+    )
+    send_verification_email(email, code)
+
+
 class AppleSignInBody(BaseModel):
     identity_token: str = Field(alias="identityToken", max_length=4096)
 
@@ -738,6 +823,7 @@ def _row_to_profile_response(row) -> dict:
         "nickname": row["nickname"],
         "avatarEmoji": row["avatar_emoji"],
         "memberSince": row["created_at"].isoformat(),
+        "emailVerified": row["email_verified"],
     }
 
 
@@ -757,8 +843,8 @@ def sign_up(request: Request, body: SignupBody):
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "INSERT INTO profiles (id, email, password_hash, nickname, avatar_emoji, created_at, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING nickname, avatar_emoji, created_at",
+                "INSERT INTO profiles (id, email, password_hash, email_verified, nickname, avatar_emoji, created_at, updated_at) "
+                "VALUES (%s, %s, %s, FALSE, %s, %s, %s, %s) RETURNING nickname, avatar_emoji, created_at, email_verified",
                 (profile_id, email, hash_password(body.password), generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
             )
             row = cur.fetchone()
@@ -767,6 +853,7 @@ def sign_up(request: Request, body: SignupBody):
                 "INSERT INTO profile_sessions (token, profile_id, created_at) VALUES (%s, %s, %s)",
                 (token, profile_id, now),
             )
+            issue_verification_code(cur, profile_id, email)
         return {"sessionToken": token, "profile": _row_to_profile_response(row)}
     except psycopg2.errors.UniqueViolation:
         raise HTTPException(409, "An account with that email already exists") from None
@@ -782,7 +869,7 @@ def log_in(request: Request, body: LoginBody):
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT id, password_hash, nickname, avatar_emoji, created_at FROM profiles WHERE email = %s",
+                "SELECT id, password_hash, nickname, avatar_emoji, created_at, email_verified FROM profiles WHERE email = %s",
                 (email,),
             )
             row = cur.fetchone()
@@ -818,13 +905,16 @@ def sign_in_with_apple(request: Request, body: AppleSignInBody):
     conn = get_conn()
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT id, nickname, avatar_emoji, created_at FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
+            cur.execute(
+                "SELECT id, nickname, avatar_emoji, created_at, email_verified FROM profiles WHERE apple_user_id = %s",
+                (apple_user_id,),
+            )
             row = cur.fetchone()
             if row is None:
                 profile_id = generate_profile_id()
                 cur.execute(
                     "INSERT INTO profiles (id, apple_user_id, nickname, avatar_emoji, created_at, updated_at) "
-                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, nickname, avatar_emoji, created_at",
+                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, nickname, avatar_emoji, created_at, email_verified",
                     (profile_id, apple_user_id, generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
                 )
                 row = cur.fetchone()
@@ -867,7 +957,7 @@ def get_profile(request: Request, profile_id: str = Depends(get_current_profile_
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT nickname, avatar_emoji, created_at FROM profiles WHERE id = %s", (profile_id,))
+            cur.execute("SELECT nickname, avatar_emoji, created_at, email_verified FROM profiles WHERE id = %s", (profile_id,))
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "Profile not found")
@@ -914,11 +1004,79 @@ def update_profile(request: Request, body: UpdateProfileBody, profile_id: str = 
                 "avatar_emoji = COALESCE(%s, avatar_emoji), "
                 "updated_at = %s "
                 "WHERE id = %s "
-                "RETURNING nickname, avatar_emoji, created_at",
+                "RETURNING nickname, avatar_emoji, created_at, email_verified",
                 (body.nickname, body.avatar_emoji, now, profile_id),
             )
             row = cur.fetchone()
         return _row_to_profile_response(row)
+    finally:
+        conn.close()
+
+
+@app.post("/auth/resend-verification")
+@limiter.limit(VERIFY_LIMIT)
+def resend_verification(request: Request, profile_id: str = Depends(get_current_profile_id)):
+    conn = get_conn()
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT email, email_verified FROM profiles WHERE id = %s", (profile_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Profile not found")
+            if not row["email"]:
+                # An Apple-only profile has no email at all — nothing to
+                # verify, so nothing to resend either.
+                raise HTTPException(400, "This profile has no email to verify")
+            if row["email_verified"]:
+                # Not an error — the mobile UI only shows a resend button
+                # while unverified, but a stale button tap (verified in the
+                # meantime, e.g. from another device) shouldn't surface as
+                # a failure.
+                return {"ok": True}
+            issue_verification_code(cur, profile_id, row["email"])
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+class VerifyEmailBody(BaseModel):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+@app.post("/auth/verify-email")
+@limiter.limit(VERIFY_LIMIT)
+def verify_email(request: Request, body: VerifyEmailBody, profile_id: str = Depends(get_current_profile_id)):
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT code, expires_at, attempts FROM email_verification_codes WHERE profile_id = %s",
+                (profile_id,),
+            )
+            pending = cur.fetchone()
+        if not pending:
+            raise HTTPException(400, "No pending verification code — request a new one")
+        if pending["attempts"] >= MAX_VERIFY_ATTEMPTS:
+            raise HTTPException(400, "Too many attempts — request a new code")
+        if datetime.now(timezone.utc) > pending["expires_at"]:
+            raise HTTPException(400, "That code expired — request a new one")
+        if body.code != pending["code"]:
+            # Committed in its own block, separate from the HTTPException
+            # raised right after — raising *inside* a `with conn:` block
+            # rolls the whole thing back, which would silently discard
+            # this increment along with it. The success path below has no
+            # such problem (nothing raises after its writes), but this one
+            # does, so it gets the extra care.
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE email_verification_codes SET attempts = attempts + 1 WHERE profile_id = %s",
+                    (profile_id,),
+                )
+            raise HTTPException(400, "Incorrect code")
+        with conn, conn.cursor() as cur:
+            cur.execute("UPDATE profiles SET email_verified = TRUE WHERE id = %s", (profile_id,))
+            cur.execute("DELETE FROM email_verification_codes WHERE profile_id = %s", (profile_id,))
+        return {"ok": True}
     finally:
         conn.close()
 

@@ -1586,6 +1586,9 @@ function App(): React.JSX.Element {
         onUpdateNickname={profile.updateNickname}
         onUpdateAvatar={profile.updateAvatar}
         onDeleteAccount={profile.deleteAccount}
+        verifyingEmail={profile.verifyingEmail}
+        onVerifyEmail={profile.verifyEmail}
+        onResendVerificationCode={profile.resendVerificationCode}
       />
 
       <BorderCrossingInfoCard

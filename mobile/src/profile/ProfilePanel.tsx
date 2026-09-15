@@ -40,6 +40,9 @@ type Props = {
   onUpdateNickname: (nickname: string) => void;
   onUpdateAvatar: (avatarEmoji: string) => void;
   onDeleteAccount: () => void;
+  verifyingEmail: boolean;
+  onVerifyEmail: (code: string) => void;
+  onResendVerificationCode: () => void;
 };
 
 export default function ProfilePanel({
@@ -56,12 +59,16 @@ export default function ProfilePanel({
   onUpdateNickname,
   onUpdateAvatar,
   onDeleteAccount,
+  verifyingEmail,
+  onVerifyEmail,
+  onResendVerificationCode,
 }: Props) {
   const { colors, scheme } = useTheme();
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [authMode, setAuthMode] = useState<AuthMode>('signup');
   const [emailDraft, setEmailDraft] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
+  const [verifyCodeDraft, setVerifyCodeDraft] = useState('');
 
   // Resyncs the editable draft whenever the real nickname changes from
   // outside this input (signing in, or a save from this same input
@@ -81,6 +88,12 @@ export default function ProfilePanel({
       setPasswordDraft('');
     }
   }, [profile]);
+
+  // Clears the code field once verification actually succeeds — nothing
+  // left to enter after that.
+  useEffect(() => {
+    if (profile?.emailVerified) setVerifyCodeDraft('');
+  }, [profile?.emailVerified]);
 
   if (!visible) return null;
 
@@ -127,6 +140,53 @@ export default function ProfilePanel({
           <ActivityIndicator size="small" color={colors.textSecondary} style={styles.loadingSpinner} />
         ) : profile ? (
           <ScrollView showsVerticalScrollIndicator={false}>
+            {!profile.emailVerified && (
+              <View style={[styles.verifyBanner, { backgroundColor: colors.divider }]}>
+                <Text style={[styles.verifyBannerText, { color: colors.textPrimary }]}>
+                  📧 Enter the code sent to your email to verify your account.
+                </Text>
+                <View style={styles.verifyRow}>
+                  <TextInput
+                    style={[styles.verifyInput, { color: colors.textPrimary, borderColor: colors.dividerStrong }]}
+                    placeholder="6-digit code"
+                    placeholderTextColor={colors.textSecondary}
+                    value={verifyCodeDraft}
+                    onChangeText={text => setVerifyCodeDraft(text.replace(/[^0-9]/g, '').slice(0, 6))}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    returnKeyType="done"
+                    onSubmitEditing={() => verifyCodeDraft.length === 6 && onVerifyEmail(verifyCodeDraft)}
+                    accessibilityLabel="Verification code"
+                  />
+                  <Pressable
+                    style={[
+                      styles.verifyButton,
+                      { backgroundColor: colors.textPrimary },
+                      verifyCodeDraft.length !== 6 && styles.actionButtonDisabled,
+                    ]}
+                    onPress={() => onVerifyEmail(verifyCodeDraft)}
+                    disabled={verifyCodeDraft.length !== 6 || verifyingEmail}
+                    accessibilityRole="button"
+                    accessibilityLabel="Verify code">
+                    {verifyingEmail ? (
+                      <ActivityIndicator size="small" color={colors.onTextPrimary} />
+                    ) : (
+                      <Text style={[styles.verifyButtonLabel, { color: colors.onTextPrimary }]}>Verify</Text>
+                    )}
+                  </Pressable>
+                </View>
+                <Pressable
+                  onPress={onResendVerificationCode}
+                  disabled={verifyingEmail}
+                  accessibilityRole="button"
+                  hitSlop={4}>
+                  <Text style={[styles.toggleModeLabel, { color: colors.accent }]}>Resend code</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {error && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
+
             <View style={styles.avatarRow}>
               {AVATAR_EMOJI_CHOICES.map(choice => (
                 <Pressable
@@ -171,8 +231,6 @@ export default function ProfilePanel({
             <Text style={[styles.memberSince, { color: colors.textSecondary }]}>
               Member since {formatMemberSince(profile.memberSince)}
             </Text>
-
-            {error && <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>}
 
             <Pressable
               style={[styles.signOutButton, { backgroundColor: colors.divider }]}
@@ -329,6 +387,39 @@ const styles = StyleSheet.create({
   },
   loadingSpinner: {
     marginVertical: 12,
+  },
+  verifyBanner: {
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  verifyBannerText: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  verifyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  verifyInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 15,
+    letterSpacing: 2,
+    marginRight: 8,
+  },
+  verifyButton: {
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  verifyButtonLabel: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   avatarRow: {
     flexDirection: 'row',

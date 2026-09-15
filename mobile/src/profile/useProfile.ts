@@ -19,10 +19,12 @@ import {
   fetchProfile,
   logInWithEmail as logInWithEmailRequest,
   ProfileAuthError,
+  resendVerificationCode as resendVerificationCodeRequest,
   signInWithAppleIdentityToken,
   signOutSession,
   signUpWithEmail as signUpWithEmailRequest,
   updateProfile,
+  verifyEmailCode,
   type Profile,
   type SignedIn,
 } from './api';
@@ -48,6 +50,11 @@ export type UseProfile = {
   updateNickname: (nickname: string) => Promise<void>;
   updateAvatar: (avatarEmoji: string) => Promise<void>;
   deleteAccount: () => Promise<void>;
+  /** True while a verify/resend request is in flight — its own flag,
+   * separate from `signingIn`, since this happens *after* signing in. */
+  verifyingEmail: boolean;
+  verifyEmail: (code: string) => Promise<void>;
+  resendVerificationCode: () => Promise<void>;
 };
 
 export function useProfile(closeUtilityPanels: () => void): UseProfile {
@@ -56,6 +63,7 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
   // A ref, not just relying on `profile` being non-null — a network hiccup
   // right after sign-in could leave `profile` unset for a moment while the
   // token itself is already valid and stored; every action below needs the
@@ -206,6 +214,43 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
     }
   };
 
+  const verifyEmail = async (code: string) => {
+    const token = sessionTokenRef.current;
+    if (!token) return;
+    setError(null);
+    setVerifyingEmail(true);
+    try {
+      await verifyEmailCode(token, code);
+      // The endpoint just returns {ok: true}, not a full profile — patch
+      // the one field that changed locally rather than an extra GET
+      // /profile round trip for something already known.
+      setProfile(prev => (prev ? { ...prev, emailVerified: true } : prev));
+    } catch (e) {
+      // sharing/api.ts's extractErrorMessage already surfaces the server's
+      // own message ("Incorrect code," "That code expired," "Too many
+      // attempts") — show it directly, it's the useful text here.
+      logError('profile:verifyEmail', e);
+      setError(e instanceof Error ? e.message : 'Could not verify that code — try again.');
+    } finally {
+      setVerifyingEmail(false);
+    }
+  };
+
+  const resendVerificationCode = async () => {
+    const token = sessionTokenRef.current;
+    if (!token) return;
+    setError(null);
+    setVerifyingEmail(true);
+    try {
+      await resendVerificationCodeRequest(token);
+    } catch (e) {
+      logError('profile:resendVerificationCode', e);
+      setError('Could not resend the code — try again.');
+    } finally {
+      setVerifyingEmail(false);
+    }
+  };
+
   const deleteAccount = async () => {
     const token = sessionTokenRef.current;
     if (!token) return;
@@ -237,5 +282,8 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
     updateNickname,
     updateAvatar,
     deleteAccount,
+    verifyingEmail,
+    verifyEmail,
+    resendVerificationCode,
   };
 }
