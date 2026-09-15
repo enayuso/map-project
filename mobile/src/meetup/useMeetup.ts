@@ -41,6 +41,22 @@ export type UseMeetup = {
   activate: () => void;
   reset: () => void;
   participants: (SearchResult | null)[];
+  /**
+   * A stable id per participant *slot*, independent of its current array
+   * position — MeetupPanel uses these (not the raw `.map` index) for both
+   * React's own `key` and each row's SearchBox `id`. Found in review: with
+   * a plain `index`-based key/id, removing participant 0 while participant
+   * 2's SearchBox has an open dropdown doesn't remount that instance (React
+   * reconciles by key, and the key didn't change) — it silently reuses the
+   * same component (same open dropdown, same typed query) for whichever
+   * participant now occupies that position, several reviewers' term for
+   * the same underlying React "index as key" pitfall. These ids are
+   * generated once per slot (`activate`/`addParticipant`) and only ever
+   * removed (`removeParticipant`), never reassigned, so a mounted
+   * SearchBox instance's identity always follows its own participant, not
+   * its current position.
+   */
+  slotIds: string[];
   activeParticipantIndex: number;
   setActiveParticipantIndex: (index: number) => void;
   selectParticipant: (index: number, result: SearchResult) => void;
@@ -77,6 +93,12 @@ export function useMeetup(
 ): UseMeetup {
   const [active, setActive] = useState(false);
   const [participants, setParticipants] = useState<(SearchResult | null)[]>([null, null]);
+  const [slotIds, setSlotIds] = useState<string[]>(['meetup-slot-0', 'meetup-slot-1']);
+  // Monotonic, never reused even across a reset — a slot id only ever
+  // needs to be unique for as long as some SearchBox/coordinator instance
+  // might still reference it (e.g. mid-unmount), so counting up forever is
+  // simpler and safer than trying to recycle low numbers.
+  const nextSlotIdRef = useRef(2);
   const [activeParticipantIndex, setActiveParticipantIndex] = useState(0);
   const [candidates, setCandidates] = useState<MeetupCandidate[]>([]);
   const [resultsVisible, setResultsVisible] = useState(false);
@@ -94,6 +116,11 @@ export function useMeetup(
     setActive(false);
     setParticipants([null, null]);
     setLiveShareCodes([null, null]);
+    // Fresh slot ids too, not just a fresh participants array — a
+    // leftover id from before reset() could otherwise collide with (or be
+    // confused for) a new slot that happens to land at the same position.
+    setSlotIds(['meetup-slot-0', 'meetup-slot-1']);
+    nextSlotIdRef.current = 2;
     setCandidates([]);
     setResultsVisible(false);
     setError(null);
@@ -136,7 +163,14 @@ export function useMeetup(
     try {
       const pos = await getSharedPosition(trimmed);
       selectParticipant(index, {
-        id: `shared-${index}`,
+        // Keyed by this slot's stable id, not its current array index —
+        // found in review: an index-keyed id would collide in the
+        // recent-searches list across two different friends' codes shared
+        // into the same *position* at different times (e.g. slot 0 filled
+        // from A's code today, B's code tomorrow — both would' have
+        // both have written recent-search id "shared-0", overwriting one
+        // with the other rather than keeping both as distinct recents).
+        id: `shared-${slotIds[index] ?? index}`,
         name: pos.label ? `${pos.label} (shared)` : `Shared location (${trimmed})`,
         subtitle: 'Live shared location',
         lat: pos.lat,
@@ -165,28 +199,50 @@ export function useMeetup(
   }, [liveShareCodes]);
 
   useEffect(() => {
-    if (!active) return;
+    // Paused (not just "no-op'd per tick") while the results sheet is
+    // showing — found in review: nothing re-reads a live position until
+    // the user goes back and re-runs "Find a fair place to meet," so
+    // polling on into an open results view is pure wasted network/battery
+    // with no observable benefit. Resumes as soon as the sheet closes.
+    if (!active || resultsVisible) return;
     const poll = () => {
       liveShareCodesRef.current.forEach((code, index) => {
         if (!code) return;
         getSharedPosition(code)
           .then(pos => {
+            // Re-check against the *current* ref, not the `code`/`index`
+            // this specific request closed over — found in review: without
+            // this, a slower-than-usual response for a code that's since
+            // been superseded (the user picked a different share for the
+            // same slot, or removeParticipant shifted a later participant
+            // down into this index) would silently overwrite the right
+            // answer with a stale one. A mismatch here means this response
+            // is no longer wanted for this index at all.
+            if (liveShareCodesRef.current[index] !== code) return;
             setParticipants(prev => prev.map((p, i) => (i === index && p ? { ...p, lat: pos.lat, lon: pos.lon } : p)));
           })
           .catch(e => {
+            // Same staleness check as above — if this slot has already
+            // moved on to a different code (or none), a failure for the
+            // *old* code shouldn't clear the *new* one's live status.
+            if (liveShareCodesRef.current[index] !== code) return;
             // The share expired or was stopped server-side — stop treating
             // this slot as live (matches useSharing's own "stop pretending"
             // behavior on a failed push/poll) but leave the participant's
             // last-known position filled in rather than blanking the slot
-            // out from under the user mid-session.
+            // out from under the user mid-session. Also surfaces *why* —
+            // found in review: without this, the "🔴 live" badge just
+            // silently disappears with nothing explaining it, easy to
+            // mistake for a UI glitch rather than an expired/stopped share.
             logError('meetup:liveSharePoll', e, { index });
             setLiveShareCodes(prev => prev.map((c, i) => (i === index ? null : c)));
+            setSharedLocationError('A shared location stopped updating — ask them to re-share their code.');
           });
       });
     };
     const interval = setInterval(poll, LIVE_SHARE_POLL_MS);
     return () => clearInterval(interval);
-  }, [active]);
+  }, [active, resultsVisible]);
 
   const fillCurrentLocation = (index: number) => {
     if (!locationEnabled) setLocationEnabled(true);
@@ -204,6 +260,7 @@ export function useMeetup(
   const addParticipant = () => {
     setParticipants(prev => (prev.length < MAX_PARTICIPANTS ? [...prev, null] : prev));
     setLiveShareCodes(prev => (prev.length < MAX_PARTICIPANTS ? [...prev, null] : prev));
+    setSlotIds(prev => (prev.length < MAX_PARTICIPANTS ? [...prev, `meetup-slot-${nextSlotIdRef.current++}`] : prev));
     setActiveParticipantIndex(participants.length);
   };
 
@@ -212,6 +269,7 @@ export function useMeetup(
     // Kept in lockstep with participants — same index scheme, so a removed
     // slot's live-poll tracking is dropped along with the slot itself.
     setLiveShareCodes(prev => prev.filter((_, i) => i !== index));
+    setSlotIds(prev => prev.filter((_, i) => i !== index));
   };
 
   const findMeetupPoint = async () => {
@@ -238,6 +296,7 @@ export function useMeetup(
     activate,
     reset,
     participants,
+    slotIds,
     activeParticipantIndex,
     setActiveParticipantIndex,
     selectParticipant,

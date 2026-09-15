@@ -19,6 +19,12 @@ const DROPDOWN_TOP = 300; // generous fixed offset below the whole panel — see
 
 type Props = {
   participants: (SearchResult | null)[];
+  // A stable id per slot, independent of its current position in
+  // `participants` — see useMeetup.ts's own `slotIds` doc comment. Used as
+  // both this row's React `key` and its SearchBox's coordinator `id`
+  // instead of the array index, so removing an earlier participant can't
+  // silently hand a still-open dropdown's state to a different row.
+  slotIds: string[];
   activeIndex: number;
   onFocusParticipant: (index: number) => void;
   onSelectParticipant: (index: number, result: SearchResult) => void;
@@ -42,6 +48,7 @@ type Props = {
 
 export default function MeetupPanel({
   participants,
+  slotIds,
   activeIndex,
   onFocusParticipant,
   onSelectParticipant,
@@ -111,12 +118,12 @@ export default function MeetupPanel({
         )}
 
         {participants.map((participant, index) => (
-          <View key={index}>
+          <View key={slotIds[index]}>
             {index > 0 && <View style={[styles.divider, { backgroundColor: colors.dividerStrong }]} />}
             <View style={[styles.fieldRow, activeIndex === index && styles.fieldRowActive]}>
               <View style={[styles.dot, { backgroundColor: PARTICIPANT_COLORS[index] }]} />
               <SearchBox
-                id={`meetup:${index}`}
+                id={`meetup:${slotIds[index]}`}
                 embedded
                 clearOnSelect={false}
                 placeholder={`Person ${index + 1}`}

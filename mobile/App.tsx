@@ -219,6 +219,7 @@ function App(): React.JSX.Element {
     weatherFeature.close();
     ferries.close();
     diveSites.close();
+    seasonal.close();
     moreMenu.close();
     errorLog.close();
   };
@@ -1142,6 +1143,7 @@ function App(): React.JSX.Element {
       {meetup.active && (
         <MeetupPanel
           participants={meetup.participants}
+          slotIds={meetup.slotIds}
           activeIndex={meetup.activeParticipantIndex}
           onFocusParticipant={meetup.setActiveParticipantIndex}
           onSelectParticipant={meetup.selectParticipant}
@@ -1483,7 +1485,16 @@ function App(): React.JSX.Element {
         onSelectCategory={alongRoute.selectCategory}
         onSelectResult={handleSelectAlongRouteResult}
         onClose={alongRoute.close}
-        onDismiss={modals.alongRoute.onDismiss}
+        onDismiss={() => {
+          // Composes both: the coordinator's own bookkeeping (frees the
+          // floor for the next slot) and alongRoute's own content reset —
+          // deliberately deferred to here, not to close() itself, so the
+          // sheet's category/results don't flash empty while its Modal is
+          // still visibly mid-slide-out. See useAlongRoute.ts's own doc
+          // comment for the full reasoning.
+          modals.alongRoute.onDismiss();
+          alongRoute.onDismissed();
+        }}
       />
 
       <ReportHazardSheet

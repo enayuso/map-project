@@ -28,6 +28,11 @@ export type UseAlongRoute = {
   wantsOpen: boolean;
   open: () => void;
   close: () => void;
+  // Fed to the sheet's own <Modal onDismiss> alongside the coordinator's
+  // own onDismiss (App.tsx composes both) — see onDismissed's own doc
+  // comment for why the content reset waits for this instead of running
+  // synchronously inside close().
+  onDismissed: () => void;
   category: string | null;
   loading: boolean;
   error: string | null;
@@ -42,8 +47,23 @@ export function useAlongRoute(route: RouteResult | null): UseAlongRoute {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<AlongRouteResult[]>([]);
 
+  // Only asks the coordinator to start hiding — deliberately does NOT reset
+  // category/results/error itself. AlongRouteSheet's <Modal> uses
+  // animationType="slide" (a real, non-instant transition), so clearing
+  // its content here would flash the sheet back to "nothing selected yet"
+  // while it's still visibly sliding off screen. The previous, pre-
+  // coordinator version of this hook deferred exactly this reset until
+  // onSheetDismissed (fired only once the dismiss animation had actually
+  // finished) — found missing during a review of the coordinator
+  // generalization that replaced it, confirmed as a real regression (not
+  // just a guess) by checking AlongRouteSheet.tsx's own animationType.
+  // onDismissed below restores that deferral, generalized to work with
+  // any coordinator-driven dismiss rather than the old bespoke handoff.
   const close = () => {
     setWantsOpen(false);
+  };
+
+  const onDismissed = () => {
     setCategory(null);
     setResults([]);
     setError(null);
@@ -71,6 +91,7 @@ export function useAlongRoute(route: RouteResult | null): UseAlongRoute {
     wantsOpen,
     open: () => setWantsOpen(true),
     close,
+    onDismissed,
     category,
     loading,
     error,

@@ -36,7 +36,13 @@ COPY (
     -- clock) but carry real, specific names and so are deliberately NOT
     -- excluded here; only tags with zero legitimately-named uses in Belize's
     -- current OSM data are listed.
-    AND (amenity IS NULL OR amenity NOT IN (
+    -- lower(trim(...)), not a plain NOT IN — amenity values are free-text
+    -- contributor input, and 'Bench' or 'bench ' (stray case/whitespace)
+    -- would otherwise sail through this exact exclusion list undetected,
+    -- reproducing the same junk this filter exists to catch. Found in
+    -- review, applied defensively even though no current row in this
+    -- extract actually has such a variant (checked directly).
+    AND (amenity IS NULL OR lower(trim(amenity)) NOT IN (
       'bench', 'waste_basket', 'waste_disposal', 'recycling',
       'bicycle_parking', 'bicycle_repair_station', 'fire_hydrant',
       'telephone', 'grit_bin'
