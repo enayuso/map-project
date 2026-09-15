@@ -50,6 +50,51 @@
 # avatars, not an uploaded photo — see mobile/README.md's Profile section
 # for the reasoning.
 #
+# Account deletion (added 2026-09-15, researched from the reference system's own real
+# withdraw()/UserPurgeScheduler — see mobile/README.md's Profile section)
+# is a two-stage soft delete, not an immediate DELETE:
+# - DELETE /profile sets deleted_at and immediately anonymizes every auth
+#   field (apple_user_id, email, password_hash all set NULL) plus kills
+#   every session for that profile in the same transaction — a deleted
+#   account is unreachable right away, not just eventually.
+# - Postgres, unlike a naive UNIQUE index, does NOT treat two NULLs as
+#   equal for uniqueness purposes — so nulling email/apple_user_id here is
+#   enough on its own to free that email or Apple ID for a brand-new
+#   signup immediately, with no reference-style tombstone value
+#   ("deleted+id@removed...") needed to dodge the UNIQUE constraint. This
+#   is a real, deliberate simplification versus the reference system (which keeps a
+#   SHA-256 emailHash for admin/fraud-detection tooling this hobby project
+#   has none of, and needs the tombstone specifically to satisfy MySQL's
+#   own UNIQUE-with-NULLs behavior, which differs from Postgres's) —
+#   scaled down for what this project actually has, not a missed detail.
+# - nickname/avatar_emoji are deliberately left untouched on deletion,
+#   unlike the reference system nulling its equivalent name/phone fields — this app
+#   never asks for a real name anywhere (see generate_default_nickname's
+#   own comment), so the nickname was never PII to begin with; scrubbing
+#   it would just be busywork with no privacy benefit.
+# - profiles_has_an_auth_method below gets an `OR deleted_at IS NOT NULL`
+#   escape hatch specifically so a soft-deleted row (now auth-method-less
+#   by design) doesn't itself violate the very constraint that exists to
+#   keep *active* profiles from ending up unreachable.
+# - The 30-day grace period (scripts/purge_deleted_profiles.sh actually
+#   hard-deletes) isn't legally mandated for Belize specifically — Belize's
+#   own Data Protection Act, 2021 (Act No. 45 of 2021) requires erasure
+#   "without undue delay" once data's no longer needed, with no numeric
+#   figure attached, unlike Korea's PIPA (which is where the reference system's own
+#   30-day figure actually comes from). 30 days here is simply "the same
+#   the reference system number, kept for its own UX/safety-net merits" (a brief window
+#   to recover from an accidental or coerced deletion before data is
+#   actually gone) — not a claim that Belizean law requires it.
+# - No purged_date/distributed-lock machinery like the reference system's
+#   UserPurgeScheduler: that exists to stop multiple concurrent app-server
+#   instances from double-processing the same purge batch, which doesn't
+#   apply to this project's single-instance deployment — a plain DELETE
+#   past the grace period (scripts/purge_deleted_profiles.sh) is already
+#   idempotent (deleting an already-gone row is a no-op) and needs no
+#   extra bookkeeping column, matching this project's existing
+#   scripts/cleanup_expired_shares.sh precedent for "a script that purges
+#   expired rows."
+#
 # NOTE (re-run from scratch, 2026-09-15): confirmed zero real rows existed
 # in any of these tables before this change (or the email_verified one
 # before it) — no Apple sign-in has completed past the paid-account wall,
@@ -74,7 +119,8 @@ CREATE TABLE profiles (
   avatar_emoji TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT profiles_has_an_auth_method CHECK (apple_user_id IS NOT NULL OR (email IS NOT NULL AND password_hash IS NOT NULL))
+  deleted_at TIMESTAMPTZ,
+  CONSTRAINT profiles_has_an_auth_method CHECK (apple_user_id IS NOT NULL OR (email IS NOT NULL AND password_hash IS NOT NULL) OR deleted_at IS NOT NULL)
 );
 CREATE TABLE profile_sessions (
   token TEXT PRIMARY KEY,

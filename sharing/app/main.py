@@ -1182,12 +1182,48 @@ def delete_profile(request: Request, profile_id: str = Depends(get_current_profi
     """Full account deletion — required by App Store Review Guideline
     5.1.1(v) since this app offers account creation, so it must also let
     a user delete that account from within the app, not just stop using
-    it. ON DELETE CASCADE on profile_sessions.profile_id means this also
-    signs the user out of every device in the same statement."""
+    it.
+
+    A soft delete, not an immediate DELETE FROM profiles — researched from
+    a production reference (the reference system's own withdraw()/UserPurgeScheduler, see
+    mobile/README.md's Profile section) rather than invented from scratch,
+    and kept even though Belize's own Data Protection Act, 2021 (Act No. 45
+    of 2021) doesn't mandate any particular grace period — it only requires
+    erasure "without undue delay" once data's no longer needed, with no
+    numeric figure attached the way Korea's PIPA gives the reference system's own 30 days.
+    Doing the same thing anyway, on its own merits: a short recovery window
+    for an accidental or coerced deletion, before the data is actually gone
+    for good (see scripts/purge_deleted_profiles.sh, the single place that
+    grace-period length is defined — this endpoint doesn't need to know
+    that number at all, only that deleted_at marks when the clock started).
+    Everything below happens immediately and synchronously, in one
+    transaction, so a "deleted" account is unreachable right away, not
+    just eventually:
+    - apple_user_id/email/password_hash all set NULL — see
+      create_profiles_table.sh's own comment for why this alone (no
+      reference-style tombstone email) is enough to free the email/Apple ID
+      for a brand-new signup immediately, on Postgres.
+    - deleted_at recorded, marking the row as soft-deleted (and starting
+      its grace-period clock).
+    - Every session for this profile deleted outright, not left for
+      ON DELETE CASCADE to eventually clean up — the profile row itself
+      isn't being deleted here, so cascade wouldn't fire at all; this signs
+      the user out of every device in the same statement a hard delete used
+      to get for free.
+    - Any pending email_verification_codes row deleted too — an unverified
+      account that gets deleted shouldn't leave a guessable code lying
+      around against a profile_id that no longer has a real owner."""
+    now = datetime.now(timezone.utc)
     conn = get_conn()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM profiles WHERE id = %s", (profile_id,))
+            cur.execute(
+                "UPDATE profiles SET apple_user_id = NULL, email = NULL, password_hash = NULL, deleted_at = %s "
+                "WHERE id = %s",
+                (now, profile_id),
+            )
+            cur.execute("DELETE FROM profile_sessions WHERE profile_id = %s", (profile_id,))
+            cur.execute("DELETE FROM email_verification_codes WHERE profile_id = %s", (profile_id,))
         return {"ok": True}
     finally:
         conn.close()
