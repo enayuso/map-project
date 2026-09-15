@@ -74,28 +74,27 @@ export default function MeetupPanel({
   // native text-input dialog, so a shared code doesn't need its own inline
   // input UI just for this one step.
   //
-  // Deferred, not called directly from the shortcut's onPress: SearchBox's
-  // own extraShortcut handler (src/search/SearchBox.tsx's
-  // handleExtraShortcut) closes this dropdown's <Modal> immediately before
-  // running the shortcut's own action, and presenting Alert.prompt in the
-  // very same tick — while that Modal's dismiss is still only queued, not
-  // actually complete — reliably made the alert silently fail to appear at
-  // all (confirmed live, twice, including once against an onDismiss-
-  // chained version of this fix that surfaced a *worse* symptom: a real
-  // "Cannot read property 'getSnapshot' of null" crash from doing this
-  // from inside the native onDismiss callback itself, presumably too
-  // re-entrant for React's reconciler to handle safely). A plain deferred
-  // macrotask — not chained to any Modal lifecycle event — sidesteps both:
-  // by the time this runs, the dropdown's dismiss has had a full run loop
-  // pass to actually finish, and it's an ordinary scheduled callback, not
-  // one nested inside a raw native bridge callback frame.
+  // Deliberately a dedicated row button (below), not one of SearchBox's own
+  // extraShortcuts, despite `onUseCurrentLocation` living there and doing
+  // something conceptually identical. Found the hard way, across two
+  // separate debugging passes: calling Alert.prompt from inside SearchBox's
+  // extraShortcut handler (src/search/SearchBox.tsx's handleExtraShortcut,
+  // which closes this dropdown's own <Modal> immediately before running
+  // the shortcut's action) reliably made the alert silently fail to
+  // appear — confirmed not a general Alert/Alert.prompt problem (a plain
+  // Alert.prompt call from an ordinary Pressable elsewhere in this exact
+  // Meet Up panel works perfectly), and not fixable with a deferred
+  // setTimeout either (tried 0ms, 300ms — neither helped; an
+  // onDismiss-chained version made it worse, surfacing a real
+  // `Cannot read property 'getSnapshot' of null` crash). Rather than keep
+  // chasing the exact native mechanism, sidestepped it architecturally:
+  // this action now lives on its own row button, called directly, with no
+  // dependency on SearchBox's dropdown or its Modal at all.
   const promptForSharedLocation = (index: number) => {
-    setTimeout(() => {
-      Alert.prompt('Enter their share code', "Ask them to open Live Location Sharing and read you their code", code => {
-        const trimmed = (code || '').trim();
-        if (trimmed) onUseSharedLocation(index, trimmed);
-      });
-    }, 300);
+    Alert.prompt('Enter their share code', "Ask them to open Live Location Sharing and read you their code", code => {
+      const trimmed = (code || '').trim();
+      if (trimmed) onUseSharedLocation(index, trimmed);
+    });
   };
 
   return (
@@ -133,10 +132,7 @@ export default function MeetupPanel({
                 onSelect={result => onSelectParticipant(index, result)}
                 recentSearches={recentSearches}
                 favorites={favorites}
-                extraShortcuts={[
-                  { label: '📍 Use current location', onPress: () => onUseCurrentLocation(index) },
-                  { label: '📡 Use a shared location', onPress: () => promptForSharedLocation(index) },
-                ]}
+                extraShortcuts={[{ label: '📍 Use current location', onPress: () => onUseCurrentLocation(index) }]}
               />
               {liveShareCodes[index] && (
                 <Text
@@ -144,6 +140,16 @@ export default function MeetupPanel({
                   accessibilityLabel="Live shared location, updating automatically">
                   🔴 live
                 </Text>
+              )}
+              {!participant && (
+                <Pressable
+                  style={styles.rowButton}
+                  onPress={() => promptForSharedLocation(index)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Use a shared location for person ${index + 1}`}>
+                  <Text style={styles.rowButtonEmoji}>📡</Text>
+                </Pressable>
               )}
               {participant && (
                 <Pressable
@@ -277,6 +283,9 @@ const styles = StyleSheet.create({
   rowButtonLabel: {
     fontSize: 13,
     color: '#8a8578',
+  },
+  rowButtonEmoji: {
+    fontSize: 13,
   },
   addRow: {
     paddingVertical: 10,
