@@ -72,10 +72,20 @@
 #   never asks for a real name anywhere (see generate_default_nickname's
 #   own comment), so the nickname was never PII to begin with; scrubbing
 #   it would just be busywork with no privacy benefit.
-# - profiles_has_an_auth_method below gets an `OR deleted_at IS NOT NULL`
-#   escape hatch specifically so a soft-deleted row (now auth-method-less
-#   by design) doesn't itself violate the very constraint that exists to
-#   keep *active* profiles from ending up unreachable.
+# - profiles_has_an_auth_method is a genuine two-way invariant, not a
+#   one-directional escape hatch (fixed 2026-09-15, same day, after a
+#   code-review pass caught the original version only checking that
+#   deleted_at was set, never that the auth fields were actually NULL — a
+#   row with deleted_at set AND a still-live email/password_hash would
+#   have passed the original CHECK trivially via its other OR-branch,
+#   silently permanently blocking that email from reuse and letting
+#   purge_deleted_profiles.sh eventually hard-delete a row whose
+#   credentials were never actually anonymized). Now a profile is either
+#   live-with-an-auth-method (deleted_at IS NULL) or fully-anonymized
+#   (deleted_at IS NOT NULL AND every auth field NULL) — nothing in
+#   between can ever be inserted or updated into existence, enforced by
+#   Postgres itself rather than by trusting delete_profile's application
+#   code to always null every field correctly.
 # - The 30-day grace period (scripts/purge_deleted_profiles.sh actually
 #   hard-deletes) isn't legally mandated for Belize specifically — Belize's
 #   own Data Protection Act, 2021 (Act No. 45 of 2021) requires erasure
@@ -120,7 +130,11 @@ CREATE TABLE profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
-  CONSTRAINT profiles_has_an_auth_method CHECK (apple_user_id IS NOT NULL OR (email IS NOT NULL AND password_hash IS NOT NULL) OR deleted_at IS NOT NULL)
+  CONSTRAINT profiles_has_an_auth_method CHECK (
+    (deleted_at IS NULL AND (apple_user_id IS NOT NULL OR (email IS NOT NULL AND password_hash IS NOT NULL)))
+    OR
+    (deleted_at IS NOT NULL AND apple_user_id IS NULL AND email IS NULL AND password_hash IS NULL)
+  )
 );
 CREATE TABLE profile_sessions (
   token TEXT PRIMARY KEY,

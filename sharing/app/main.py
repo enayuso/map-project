@@ -674,14 +674,28 @@ def get_current_profile_id(authorization: str | None = Header(default=None)) -> 
     <sessionToken>` header to the profile id it belongs to, or raises 401.
     Every profile-mutating endpoint below depends on this rather than
     trusting an id the client could otherwise just pass in the body —
-    the session token is the only thing that proves who's asking."""
+    the session token is the only thing that proves who's asking.
+
+    Joins through to profiles and requires deleted_at IS NULL rather than
+    just checking profile_sessions on its own — today that's provably
+    redundant (delete_profile deletes every session for a profile in the
+    exact same transaction that sets deleted_at, so a session row for a
+    soft-deleted profile can never exist once that transaction commits),
+    but it turns "a valid session can never belong to a deleted profile"
+    from a fact that happens to be true because nothing else currently
+    violates it into one Postgres itself enforces on every call."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing or malformed Authorization header")
     token = authorization.removeprefix("Bearer ")
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT profile_id FROM profile_sessions WHERE token = %s", (token,))
+            cur.execute(
+                "SELECT profile_sessions.profile_id FROM profile_sessions "
+                "JOIN profiles ON profiles.id = profile_sessions.profile_id "
+                "WHERE profile_sessions.token = %s AND profiles.deleted_at IS NULL",
+                (token,),
+            )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(401, "Invalid or signed-out session")
@@ -997,7 +1011,20 @@ def get_profile(request: Request, profile_id: str = Depends(get_current_profile_
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT nickname, avatar_emoji, created_at, email_verified FROM profiles WHERE id = %s", (profile_id,))
+            # deleted_at IS NULL closes a narrow race, not a currently-
+            # reachable bug: get_current_profile_id already guarantees
+            # profile_id belongs to a live profile at the moment IT ran,
+            # but this query opens its own separate connection a moment
+            # later — if a concurrent DELETE /profile for this same
+            # profile commits in between, without this filter the row
+            # would still be found (soft-delete never touches nickname/
+            # avatar_emoji/created_at/email_verified) and this would
+            # return a stale 200 instead of treating the account as gone.
+            cur.execute(
+                "SELECT nickname, avatar_emoji, created_at, email_verified FROM profiles "
+                "WHERE id = %s AND deleted_at IS NULL",
+                (profile_id,),
+            )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "Profile not found")
@@ -1038,16 +1065,25 @@ def update_profile(request: Request, body: UpdateProfileBody, profile_id: str = 
     conn = get_conn()
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # AND deleted_at IS NULL — same narrow-race reasoning as
+            # get_profile's own comment. Matters more here than there: an
+            # UPDATE with no matching row (rather than a SELECT) would
+            # otherwise silently succeed at editing a just-deleted
+            # account's nickname/avatar and RETURNING nothing, which the
+            # old code would then crash on (row.fetchone() is None,
+            # row["nickname"] raises) instead of the clean 404 below.
             cur.execute(
                 "UPDATE profiles SET "
                 "nickname = COALESCE(%s, nickname), "
                 "avatar_emoji = COALESCE(%s, avatar_emoji), "
                 "updated_at = %s "
-                "WHERE id = %s "
+                "WHERE id = %s AND deleted_at IS NULL "
                 "RETURNING nickname, avatar_emoji, created_at, email_verified",
                 (body.nickname, body.avatar_emoji, now, profile_id),
             )
             row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Profile not found")
         return _row_to_profile_response(row)
     finally:
         conn.close()
@@ -1059,7 +1095,12 @@ def resend_verification(request: Request, profile_id: str = Depends(get_current_
     conn = get_conn()
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT email, email_verified FROM profiles WHERE id = %s", (profile_id,))
+            # AND deleted_at IS NULL — same narrow-race reasoning as
+            # get_profile's own comment.
+            cur.execute(
+                "SELECT email, email_verified FROM profiles WHERE id = %s AND deleted_at IS NULL",
+                (profile_id,),
+            )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "Profile not found")

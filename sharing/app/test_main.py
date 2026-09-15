@@ -19,10 +19,13 @@ main.py itself uses, not a scratch/test-only one, so it must not leave
 junk behind for a person to find later.
 """
 
+import uuid
+
+import psycopg2
 import pytest
 from fastapi.testclient import TestClient
 
-from main import app
+from main import app, get_conn
 
 client = TestClient(app)
 
@@ -195,6 +198,292 @@ class TestHealth:
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json() == {"ok": True}
+
+
+def _auth_header(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _unique_email() -> str:
+    # A fresh, collision-free address per test — profiles.email is
+    # UNIQUE, and this suite runs against the same shared dev database
+    # main.py itself uses (see this file's own module docstring).
+    return f"pytest-{uuid.uuid4().hex[:12]}@example.com"
+
+
+# Added after a 9-angle code-review pass on the profile/auth feature found
+# it had zero automated coverage at all — every prior verification of
+# signup/login/profile/deletion was manual curl sessions against the live
+# container. These three classes are that first pass, not exhaustive
+# coverage of every endpoint (Sign in with Apple isn't covered — it needs
+# a real Apple-signed identity token, which nothing in this test
+# environment can produce).
+class TestAuth:
+    def test_signup_returns_session_and_profile(self):
+        email = _unique_email()
+        resp = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        assert resp.status_code == 200
+        body = resp.json()
+        profile = body["profile"]
+        assert profile["nickname"].startswith("Explorer ")
+        assert profile["avatarEmoji"]
+        assert profile["emailVerified"] is False
+        assert "memberSince" in profile
+
+        client.delete("/profile", headers=_auth_header(body["sessionToken"]))
+
+    def test_signup_duplicate_email_409(self):
+        email = _unique_email()
+        first = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        assert first.status_code == 200
+
+        dupe = client.post("/auth/signup", json={"email": email, "password": "otherpass456"})
+        assert dupe.status_code == 409
+
+        client.delete("/profile", headers=_auth_header(first.json()["sessionToken"]))
+
+    def test_signup_too_short_password_422(self):
+        assert client.post("/auth/signup", json={"email": _unique_email(), "password": "short"}).status_code == 422
+
+    def test_signup_invalid_email_422(self):
+        resp = client.post("/auth/signup", json={"email": "not-an-email", "password": "testpass123"})
+        assert resp.status_code == 422
+
+    def test_login_success(self):
+        email = _unique_email()
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+
+        login = client.post("/auth/login", json={"email": email, "password": "testpass123"})
+        assert login.status_code == 200
+        assert login.json()["profile"]["emailVerified"] is False
+
+        client.delete("/profile", headers=_auth_header(signup.json()["sessionToken"]))
+
+    def test_login_wrong_password_and_nonexistent_email_get_identical_401(self):
+        email = _unique_email()
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+
+        wrong_password = client.post("/auth/login", json={"email": email, "password": "wrongpass789"})
+        nonexistent = client.post("/auth/login", json={"email": _unique_email(), "password": "whatever123"})
+        assert wrong_password.status_code == 401
+        assert nonexistent.status_code == 401
+        # Same wording for both — a login attempt must not be usable to
+        # enumerate registered emails one guess at a time (see log_in's
+        # own comment in main.py).
+        assert wrong_password.json()["detail"] == nonexistent.json()["detail"]
+
+        client.delete("/profile", headers=_auth_header(signup.json()["sessionToken"]))
+
+
+class TestProfile:
+    def test_get_profile_requires_auth(self):
+        assert client.get("/profile").status_code == 401
+        assert client.get("/profile", headers=_auth_header("garbage-token")).status_code == 401
+
+    def test_update_profile_nickname_and_avatar(self):
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+
+        upd = client.put("/profile", json={"nickname": "  Sea Turtle  ", "avatarEmoji": "🐢"}, headers=_auth_header(token))
+        assert upd.status_code == 200
+        assert upd.json()["nickname"] == "Sea Turtle"  # whitespace trimmed
+        assert upd.json()["avatarEmoji"] == "🐢"
+        assert client.get("/profile", headers=_auth_header(token)).json()["nickname"] == "Sea Turtle"
+
+        client.delete("/profile", headers=_auth_header(token))
+
+    def test_update_profile_rejects_blank_nickname(self):
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+
+        assert client.put("/profile", json={"nickname": "   "}, headers=_auth_header(token)).status_code == 422
+
+        client.delete("/profile", headers=_auth_header(token))
+
+    def test_update_profile_rejects_invalid_avatar(self):
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+
+        assert client.put("/profile", json={"avatarEmoji": "🍕"}, headers=_auth_header(token)).status_code == 400
+
+        client.delete("/profile", headers=_auth_header(token))
+
+    def test_update_profile_requires_at_least_one_field(self):
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+
+        assert client.put("/profile", json={}, headers=_auth_header(token)).status_code == 400
+
+        client.delete("/profile", headers=_auth_header(token))
+
+    def test_sign_out_is_idempotent_and_tolerant_of_missing_header(self):
+        email = _unique_email()
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+
+        assert client.delete("/auth/session", headers=_auth_header(token)).json() == {"ok": True}
+        # Same (now-dead) token again — signing out twice is never itself
+        # an error.
+        assert client.delete("/auth/session", headers=_auth_header(token)).json() == {"ok": True}
+        # No header at all — also never an error.
+        assert client.delete("/auth/session").json() == {"ok": True}
+
+        # The session is dead but the profile row itself is still live —
+        # clean it up via a fresh login rather than the now-unusable
+        # original token.
+        login = client.post("/auth/login", json={"email": email, "password": "testpass123"})
+        client.delete("/profile", headers=_auth_header(login.json()["sessionToken"]))
+
+
+class TestAccountDeletion:
+    """DELETE /profile is a soft delete (see main.py's own delete_profile
+    docstring and sharing/README.md's Account deletion follow-ups), so
+    every test below that runs it leaves an anonymized, unreachable row
+    behind rather than removing it outright — that's the intended
+    end-state of the feature itself, not junk left over from a sloppy
+    test (the freed email is immediately reusable, confirmed below, so
+    it doesn't collide with anything either). scripts/purge_deleted_
+    profiles.sh is what eventually clears these rows out for real, same
+    as it would for a real user's deleted account."""
+
+    def _profile_id_for_email(self, email: str) -> str:
+        # No API response ever returns a profile's internal id (see
+        # generate_profile_id's own comment in main.py — it's
+        # deliberately never exposed to a client). Reaching into the DB
+        # directly here is the only way to get at it, needed only by the
+        # one test below that verifies something structurally impossible
+        # to trigger through the public HTTP API alone.
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM profiles WHERE email = %s", (email,))
+                return cur.fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_delete_kills_session_immediately(self):
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+
+        assert client.delete("/profile", headers=_auth_header(token)).status_code == 200
+        assert client.get("/profile", headers=_auth_header(token)).status_code == 401
+
+    def test_delete_frees_email_for_immediate_reuse(self):
+        email = _unique_email()
+        first = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        client.delete("/profile", headers=_auth_header(first.json()["sessionToken"]))
+
+        # Same email, brand-new signup, right away — no UniqueViolation,
+        # no need to wait out the 30-day grace period (Postgres doesn't
+        # treat two NULLs as equal, so the soft-deleted row's now-NULL
+        # email doesn't block this — see create_profiles_table.sh).
+        second = client.post("/auth/signup", json={"email": email, "password": "anotherpass456"})
+        assert second.status_code == 200
+
+        client.delete("/profile", headers=_auth_header(second.json()["sessionToken"]))
+
+    def test_delete_twice_returns_401_not_error(self):
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+
+        assert client.delete("/profile", headers=_auth_header(token)).status_code == 200
+        # The same token again: its session is already gone, so this
+        # fails safely at the auth layer (401) — a retried/double-tapped
+        # delete request must never crash or corrupt anything.
+        assert client.delete("/profile", headers=_auth_header(token)).status_code == 401
+
+    def test_updated_at_bumps_alongside_deleted_at(self):
+        email = _unique_email()
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+        profile_id = self._profile_id_for_email(email)
+
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT created_at, updated_at FROM profiles WHERE id = %s", (profile_id,))
+                created_at, updated_at_before = cur.fetchone()
+                assert created_at == updated_at_before  # never edited yet
+
+            assert client.delete("/profile", headers=_auth_header(token)).status_code == 200
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT created_at, updated_at, deleted_at FROM profiles WHERE id = %s", (profile_id,))
+                created_at2, updated_at_after, deleted_at = cur.fetchone()
+                assert created_at2 == created_at  # untouched by the delete
+                assert updated_at_after == deleted_at  # bumped together
+                assert updated_at_after > updated_at_before
+        finally:
+            conn.close()
+
+    def test_delete_is_idempotent_at_the_database_layer(self):
+        # A second DELETE /profile call can never reach delete_profile's
+        # body through the real HTTP API once the first has run (see
+        # test_delete_twice_returns_401_not_error above) — sessions die
+        # in the very same transaction as the soft-delete. The actual
+        # race delete_profile's WHERE deleted_at IS NULL guard protects
+        # against — two DEVICES racing a near-simultaneous delete before
+        # either's session-cleanup commits — can't be reproduced
+        # deterministically through a live HTTP race either. So this
+        # verifies the guard directly at the SQL layer: re-run the exact
+        # statement delete_profile uses, against an already-soft-deleted
+        # row, and confirm it's refused (0 rows) rather than silently
+        # resetting the grace-period clock.
+        email = _unique_email()
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        token = signup.json()["sessionToken"]
+        profile_id = self._profile_id_for_email(email)
+
+        assert client.delete("/profile", headers=_auth_header(token)).status_code == 200
+
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT deleted_at FROM profiles WHERE id = %s", (profile_id,))
+                first_deleted_at = cur.fetchone()[0]
+
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE profiles SET apple_user_id = NULL, email = NULL, password_hash = NULL, "
+                    "deleted_at = now() + INTERVAL '1 hour', updated_at = now() + INTERVAL '1 hour' "
+                    "WHERE id = %s AND deleted_at IS NULL",
+                    (profile_id,),
+                )
+                assert cur.rowcount == 0
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT deleted_at FROM profiles WHERE id = %s", (profile_id,))
+                assert cur.fetchone()[0] == first_deleted_at
+        finally:
+            conn.close()
+
+    def test_check_constraint_rejects_deleted_row_with_live_credentials(self):
+        # profiles_has_an_auth_method must be a genuine two-way
+        # invariant (see create_profiles_table.sh's own comment): a row
+        # can never have deleted_at set while still holding a live
+        # email/password_hash/apple_user_id. Verified directly against
+        # the schema, not just delete_profile's own (trusted)
+        # application code — this is exactly the gap a code-review pass
+        # found in the original one-directional version of this
+        # constraint.
+        test_id = f"pytest-check-{uuid.uuid4().hex[:8]}"
+        conn = get_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO profiles (id, email, password_hash, nickname, avatar_emoji) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (test_id, _unique_email(), "hash", "x", "🧭"),
+                )
+
+            with pytest.raises(psycopg2.errors.CheckViolation):
+                with conn, conn.cursor() as cur:
+                    cur.execute("UPDATE profiles SET deleted_at = now() WHERE id = %s", (test_id,))
+
+            with conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM profiles WHERE id = %s", (test_id,))
+        finally:
+            conn.close()
 
 
 class TestRateLimiting:
