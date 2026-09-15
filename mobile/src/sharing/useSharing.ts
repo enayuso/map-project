@@ -11,7 +11,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { useCurrentPosition } from '@maplibre/maplibre-react-native';
-import { createShare, getSharedPosition, stopShare, updateShare, type SharedPosition } from './api';
+import { createShare, getSharedPosition, SharingHttpError, stopShare, updateShare, type SharedPosition } from './api';
 import { logError } from '../errors/logger';
 
 type CurrentPosition = ReturnType<typeof useCurrentPosition>;
@@ -63,7 +63,14 @@ export function useSharing(
     const interval = setInterval(() => {
       const pos = currentPositionRef.current;
       if (!pos) return;
-      updateShare(myCode, pos.coords.latitude, pos.coords.longitude).catch(() => {
+      updateShare(myCode, pos.coords.latitude, pos.coords.longitude).catch(e => {
+        // A 429 means this device's shared rate-limit budget (see
+        // useMeetup.ts's LIVE_SHARE_POLL_MS comment — this push interval
+        // hits the identical per-IP-limited endpoint) was hit this tick,
+        // not that the share actually ended — found in review, after the
+        // sibling live-share poller had already been fixed to make this
+        // same distinction and this one hadn't. Skip and retry next tick.
+        if (e instanceof SharingHttpError && e.status === 429) return;
         // The share expired/was removed server-side unexpectedly — stop
         // pretending to still be sharing rather than retry forever.
         setMyCode(null);
@@ -81,6 +88,12 @@ export function useSharing(
           setViewingError(null);
         })
         .catch(e => {
+          // Same reasoning as the push interval above: a 429 is this
+          // device's own shared rate-limit budget, not the share being
+          // gone — leave the last-known position and any existing error
+          // alone and just retry next tick, rather than blanking a good
+          // position and surfacing a raw "Sharing service 429" string.
+          if (e instanceof SharingHttpError && e.status === 429) return;
           setViewedPosition(null);
           setViewingError(e.message);
         });

@@ -40,6 +40,11 @@ export default function NavigationBar({
 }: Props) {
   if (!visible) return null;
 
+  // Rounded once and reused below (the badge's displayed digits and its
+  // accessibility label must always agree) rather than calling Math.round
+  // twice on every render of this hot-path value.
+  const roundedSpeedMph = speedMph !== null ? Math.round(speedMph) : null;
+
   return (
     <>
       <View style={styles.topBanner}>
@@ -69,9 +74,9 @@ export default function NavigationBar({
        * preview elsewhere in this app degrading to a hint instead of a
        * guess.
        */}
-      {speedMph !== null && (
-        <View style={styles.speedBadge} accessibilityLabel={`Current speed ${Math.round(speedMph)} miles per hour`}>
-          <Text style={styles.speedValue}>{Math.round(speedMph)}</Text>
+      {roundedSpeedMph !== null && (
+        <View style={styles.speedBadge} accessibilityLabel={`Current speed ${roundedSpeedMph} miles per hour`}>
+          <Text style={styles.speedValue}>{roundedSpeedMph}</Text>
           <Text style={styles.speedUnit}>mph</Text>
         </View>
       )}

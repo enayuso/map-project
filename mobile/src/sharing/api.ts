@@ -23,9 +23,30 @@ export type SharedPosition = {
   expiresAt: string;
 };
 
+/**
+ * Thrown for any non-404 non-2xx response, carrying the real HTTP status —
+ * found in review: every current caller against this rate-limited service
+ * (useMeetup.ts's live-share poll, useSharing.ts's push interval and view
+ * poll) needs to tell "the shared-service rate limit was hit this tick" (a
+ * 429, worth a quiet retry) apart from "this share is actually gone." A
+ * plain `Error('Sharing service 429')` made each caller re-derive that by
+ * string-matching a message this file happens to format a certain way — one
+ * caller had it, the other two didn't, so the exact bug this class exists
+ * to prevent was already live in two-thirds of the pollers hitting this
+ * endpoint. A typed status fixes it at the one place that should own it.
+ */
+export class SharingHttpError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'SharingHttpError';
+    this.status = status;
+  }
+}
+
 async function parseOrThrow<T>(res: Response, notFoundMessage: string): Promise<T> {
   if (res.status === 404) throw new Error(notFoundMessage);
-  if (!res.ok) throw new Error(`Sharing service ${res.status}`);
+  if (!res.ok) throw new SharingHttpError(res.status, `Sharing service ${res.status}`);
   return res.json();
 }
 

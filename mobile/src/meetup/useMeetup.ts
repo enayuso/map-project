@@ -25,7 +25,7 @@ import type { useCurrentPosition } from '@maplibre/maplibre-react-native';
 import { findMeetupCandidates, type MeetupCandidate } from './api';
 import { MAX_PARTICIPANTS } from './MeetupPanel';
 import { logError } from '../errors/logger';
-import { getSharedPosition } from '../sharing/api';
+import { getSharedPosition, SharingHttpError } from '../sharing/api';
 import type { SearchResult } from '../search/api';
 
 // How often a participant filled via a live-share code re-polls their
@@ -239,15 +239,17 @@ export function useMeetup(
             // A 429 means the shared rate-limit budget (see
             // LIVE_SHARE_POLL_MS's own doc comment) was hit this tick, not
             // that the share is actually gone — found in review, alongside
-            // the interval widening above. src/sharing/api.ts's
-            // parseOrThrow throws a real 404 as its own descriptive
-            // message but anything else (429 included) as a plain
-            // `Sharing service ${status}` string, which is how this
-            // distinguishes them without sharing/api.ts needing its own
-            // typed error. Skip this cycle and try again next tick rather
-            // than treating a temporary, self-inflicted rate limit as a
-            // real expiry.
-            if (e instanceof Error && e.message === 'Sharing service 429') {
+            // the interval widening above. Checked via sharing/api.ts's
+            // typed SharingHttpError rather than matching its message
+            // string directly — found in a later review that the original
+            // string-match version was too narrow (any other transient
+            // failure — a plain network error, a 500 — still fell through
+            // to "genuinely expired" below) and that useSharing.ts's own
+            // two pollers against this identical endpoint had the same gap
+            // with no check at all. Skip this cycle and try again next tick
+            // rather than treating a temporary, self-inflicted rate limit
+            // as a real expiry.
+            if (e instanceof SharingHttpError && e.status === 429) {
               logError('meetup:liveSharePoll:rateLimited', e, { index });
               return;
             }

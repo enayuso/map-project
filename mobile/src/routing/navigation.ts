@@ -116,7 +116,11 @@ const METERS_PER_SECOND_TO_MPH = 2.2369362920544;
  * nonsense negative speed.
  */
 export function gpsSpeedToMph(metersPerSecond: number | null | undefined): number | null {
-  if (metersPerSecond == null || metersPerSecond < 0) return null;
+  // NaN fails both checks above it (`NaN == null` and `NaN < 0` are both
+  // false), so it needs its own guard — found in review: without this, a
+  // malformed reading would render as the literal text "NaN mph" instead
+  // of being hidden like any other unavailable reading.
+  if (metersPerSecond == null || Number.isNaN(metersPerSecond) || metersPerSecond < 0) return null;
   return metersPerSecond * METERS_PER_SECOND_TO_MPH;
 }
 

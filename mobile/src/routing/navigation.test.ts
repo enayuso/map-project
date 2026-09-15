@@ -19,4 +19,8 @@ describe('gpsSpeedToMph', () => {
     expect(gpsSpeedToMph(null)).toBeNull();
     expect(gpsSpeedToMph(undefined)).toBeNull();
   });
+
+  it('treats NaN as unavailable, not as a literal "NaN mph" reading', () => {
+    expect(gpsSpeedToMph(NaN)).toBeNull();
+  });
 });

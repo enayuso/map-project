@@ -141,10 +141,33 @@ export default function MeetupPanel({
                   🔴 live
                 </Text>
               )}
-              {!participant && (
+              {/*
+               * Gated on "not currently live," not "empty" — found in
+               * review: gating on `!participant` meant this button
+               * disappeared exactly when a live share genuinely expired
+               * (the poll effect above deliberately keeps `participant`
+               * filled with the last-known position then, clearing only
+               * `liveShareCodes[index]`), so the one action the resulting
+               * "ask them to re-share their code" error implies should be
+               * available wasn't — the user had to tap ✕ and lose that
+               * position first. This condition lets a re-share (or a
+               * first share, replacing a searched/current-location pick)
+               * happen on any non-live slot, filled or not.
+               */}
+              {!liveShareCodes[index] && (
                 <Pressable
                   style={styles.rowButton}
-                  onPress={() => promptForSharedLocation(index)}
+                  onPress={() => {
+                    // Also focuses this slot, matching what SearchBox's own
+                    // onFocus does for every other row action — found in
+                    // review: without this, tapping this button without
+                    // ever having focused the row left `activeIndex`
+                    // stale, so a subsequent map tap (App.tsx routes it
+                    // through the active index) could silently overwrite a
+                    // different participant's slot instead.
+                    onFocusParticipant(index);
+                    promptForSharedLocation(index);
+                  }}
                   hitSlop={8}
                   accessibilityRole="button"
                   accessibilityLabel={`Use a shared location for person ${index + 1}`}>
