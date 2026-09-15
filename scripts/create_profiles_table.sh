@@ -1,44 +1,60 @@
 #!/usr/bin/env bash
-# One-time schema setup for sharing/'s user-profile feature (see
+# Schema setup for sharing/'s user-profile feature (see
 # docs/research/14-naver-kakao-profile-systems.md for the research this is
 # built from). Safe to re-run — CREATE TABLE/INDEX IF NOT EXISTS.
 #
-# Two tables, deliberately minimal — Sign in with Apple is the only auth
-# method (see main.py's own header comment for why), so a profile is keyed
-# directly by Apple's own stable per-app user identifier, not a separate
-# internal id. profile_sessions is a plain bearer-token table: a session
-# token maps to an apple_user_id, same "random secret is the whole access
-# model" pattern as every other table in this service (location_shares,
-# shared_lists), just for a per-device signed-in session instead of a
-# shared code. ON DELETE CASCADE means deleting a profiles row (account
-# deletion, required by App Store Guideline 5.1.1(v) since this app offers
-# account creation) also signs out every device in one statement.
+# Two auth methods share one `profiles` table, both optional per row:
+# - apple_user_id (Sign in with Apple's own stable per-app identifier) —
+#   built first, but needs the paid Apple Developer Program to actually
+#   enable the capability (a real recurring cost, per Locked Decision 3),
+#   so it's not usable yet on a free account.
+# - email + password_hash (this app's own account system, added 2026-09-15
+#   specifically so profiles work without that paid account) — no third-
+#   party login involved, so it doesn't trigger App Store Review Guideline
+#   4.8's "must also offer Sign in with Apple" rule the way a Google/
+#   Facebook login would; that rule only applies to third-party/social
+#   logins, not an app's own first-party email/password system.
+# A profile is keyed by its own internal `id` (not by either auth method
+# directly) precisely so it can support either method — or, later, both at
+# once for the same person — without a schema change. profile_sessions is
+# a plain bearer-token table, same "random secret is the whole access
+# model" pattern as every other table in this service.
 #
-# No avatar-image column on purpose: v1 profile customization is a nickname
-# plus a pick from a small fixed set of Belize-themed emoji avatars, not an
-# uploaded photo — see mobile/README.md's Profile section for the reasoning
-# (matches the research doc's own "start simple" conclusion; a real
-# uploaded-photo avatar, with the bytea-vs-Cloudflare-R2 tradeoff the
-# research doc already worked through, is a clean future addition to this
-# same table, not a redesign).
+# NOTE (re-run from scratch, 2026-09-15): the original version of this
+# script had apple_user_id as the primary key, Apple-only. Confirmed zero
+# real rows existed in either table before generalizing (no Apple sign-in
+# had ever succeeded end-to-end — the paid-account requirement was hit
+# first) — dropping and recreating with the new schema, not a migration,
+# since there was nothing real to migrate.
+#
+# No avatar-image column on purpose: v1 profile customization is a
+# nickname plus a pick from a small fixed set of Belize-themed emoji
+# avatars, not an uploaded photo — see mobile/README.md's Profile section
+# for the reasoning.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 "$ROOT_DIR/scripts/db_exec.sh" psql -c "
-CREATE TABLE IF NOT EXISTS profiles (
-  apple_user_id TEXT PRIMARY KEY,
+DROP TABLE IF EXISTS profile_sessions;
+DROP TABLE IF EXISTS profiles;
+CREATE TABLE profiles (
+  id TEXT PRIMARY KEY,
+  apple_user_id TEXT UNIQUE,
+  email TEXT UNIQUE,
+  password_hash TEXT,
   nickname TEXT NOT NULL,
   avatar_emoji TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT profiles_has_an_auth_method CHECK (apple_user_id IS NOT NULL OR (email IS NOT NULL AND password_hash IS NOT NULL))
 );
-CREATE TABLE IF NOT EXISTS profile_sessions (
+CREATE TABLE profile_sessions (
   token TEXT PRIMARY KEY,
-  apple_user_id TEXT NOT NULL REFERENCES profiles (apple_user_id) ON DELETE CASCADE,
+  profile_id TEXT NOT NULL REFERENCES profiles (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS profile_sessions_apple_user_id_idx ON profile_sessions (apple_user_id);
+CREATE INDEX profile_sessions_profile_id_idx ON profile_sessions (profile_id);
 "
 
-echo "profiles + profile_sessions tables ready."
+echo "profiles + profile_sessions tables ready (email/password + Apple, both optional)."

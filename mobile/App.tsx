@@ -1579,7 +1579,9 @@ function App(): React.JSX.Element {
         loading={profile.loading}
         signingIn={profile.signingIn}
         error={profile.error}
-        onSignIn={profile.signIn}
+        onSignUpWithEmail={profile.signUpWithEmail}
+        onLogInWithEmail={profile.logInWithEmail}
+        onSignInWithApple={profile.signInWithApple}
         onSignOut={profile.signOut}
         onUpdateNickname={profile.updateNickname}
         onUpdateAvatar={profile.updateAvatar}

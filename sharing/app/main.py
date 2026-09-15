@@ -31,19 +31,32 @@ Profiles (added 2026-09-15, see docs/research/14-naver-kakao-profile-
 systems.md) are the one exception to "no accounts" above — the first
 feature in this app needing real identity rather than a device-local
 preference or a shareable code. Deliberately NOT a Naver/Kakao-style
-account system: this app is iOS-only, so the deciding factor is Apple's
-own App Store Review Guideline 4.8, not either platform's approach — Sign
-in with Apple is the *only* sign-in method, which sidesteps 4.8 entirely
-(it only applies when a *third-party* login sits alongside it) and needs
-no password storage, no separate multi-scope consent UI to build, and no
-email-verification flow of our own. A profile is keyed directly by
-Apple's own stable per-app user identifier (the identity token's `sub`
-claim) — this service never sees or stores the user's real Apple ID
-email. Session model is the same "random bearer secret" trust pattern as
-every other table here (location_shares' code, a hazard report's
-delete_token): verify the Apple identity token once, mint an opaque
-session token, and use that for every request after — cheaper than
-re-verifying a JWT against Apple's JWKS on every single API call.
+account system. Two sign-in methods, both optional per profile row:
+
+- Sign in with Apple, built first, keyed by Apple's own stable per-app
+  user identifier (the identity token's `sub` claim) — this service
+  never sees or stores the user's real Apple ID email. Needs the paid
+  Apple Developer Program membership to actually enable the capability,
+  which turned out to be a real blocker (a genuine recurring cost, see
+  Locked Decision 3 in docs/PLAN.md) before a single real sign-in ever
+  completed — the code stays fully in place for whenever that membership
+  exists, it just isn't the only option anymore.
+- Email + password (added the same day, once the above blocker showed
+  up) — this app's own first-party account system, not a third-party
+  login, so it doesn't trigger App Store Review Guideline 4.8's "must
+  also offer Sign in with Apple" rule at all (that rule only applies to
+  third-party/social logins — Google, Facebook, etc. — not an app's own
+  email/password system). No email-verification or password-reset flow
+  yet — both would need an email-sending service this project doesn't
+  have; a deliberate, dev-stage-appropriate gap, not an oversight.
+
+Either method ends the same way: mint an opaque session token (same
+"random bearer secret" trust pattern as every other table here —
+location_shares' code, a hazard report's delete_token) and use that for
+every request after, rather than re-verifying a password/JWT on every
+single API call. A profile is keyed by its own internal `id`, not by
+either auth method directly, specifically so both can coexist in the
+schema without a rework.
 """
 
 import json
@@ -54,6 +67,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import bcrypt
 import jwt
 import psycopg2
 import psycopg2.errors
@@ -61,7 +75,7 @@ import psycopg2.extras
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -102,6 +116,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 MUTATE_LIMIT = "10/minute"  # creating/deleting a share, list, hazard report, correction
 POLL_LIMIT = "30/minute"  # reading/updating an active location share or list
 STATIC_LIMIT = "20/minute"  # ferry/dive-site/border-crossing content, fetched ~once per session
+AUTH_LIMIT = "5/minute"  # sign-up/log-in/Apple sign-in attempts — tighter than a plain mutation specifically to slow down password-guessing against /auth/login
 
 
 def get_conn():
@@ -630,10 +645,33 @@ def generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def get_current_apple_user_id(authorization: str | None = Header(default=None)) -> str:
+def generate_profile_id() -> str:
+    # A profile's own internal id, independent of whichever auth method(s)
+    # it ends up with — see create_profiles_table.sh's own header comment
+    # for why this isn't apple_user_id or email directly.
+    return secrets.token_urlsafe(16)
+
+
+# bcrypt only ever looks at the first 72 bytes of its input — anything
+# beyond that is silently ignored, which would let two different long
+# passwords that happen to share a 72-byte prefix hash identically. Reject
+# upfront rather than accept a false sense of security.
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 72
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+
+
+def get_current_profile_id(authorization: str | None = Header(default=None)) -> str:
     """FastAPI dependency: resolves a request's `Authorization: Bearer
-    <sessionToken>` header to the apple_user_id it belongs to, or raises
-    401. Every profile-mutating endpoint below depends on this rather than
+    <sessionToken>` header to the profile id it belongs to, or raises 401.
+    Every profile-mutating endpoint below depends on this rather than
     trusting an id the client could otherwise just pass in the body —
     the session token is the only thing that proves who's asking."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -642,7 +680,7 @@ def get_current_apple_user_id(authorization: str | None = Header(default=None)) 
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT apple_user_id FROM profile_sessions WHERE token = %s", (token,))
+            cur.execute("SELECT profile_id FROM profile_sessions WHERE token = %s", (token,))
             row = cur.fetchone()
             if not row:
                 raise HTTPException(401, "Invalid or signed-out session")
@@ -678,6 +716,23 @@ class AppleSignInBody(BaseModel):
         populate_by_name = True
 
 
+class SignupBody(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+
+class LoginBody(BaseModel):
+    email: EmailStr
+    # Deliberately not re-enforcing PASSWORD_MIN_LENGTH here — a stored
+    # hash was always created under that rule, so a too-short guess just
+    # fails the hash comparison below like any other wrong password would.
+    # Re-validating length here would only leak, via a 422 vs. 401
+    # difference, that the *format* was wrong before even checking the
+    # database — a smaller signal than a real login oracle, but free to
+    # avoid by just not adding the check.
+    password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+
+
 def _row_to_profile_response(row) -> dict:
     return {
         "nickname": row["nickname"],
@@ -686,8 +741,72 @@ def _row_to_profile_response(row) -> dict:
     }
 
 
+@app.post("/auth/signup")
+@limiter.limit(AUTH_LIMIT)
+def sign_up(request: Request, body: SignupBody):
+    """Creates a new email/password profile — this app's own first-party
+    account system, added 2026-09-15 specifically so profiles work without
+    the Apple Developer Program's paid membership Sign in with Apple
+    turned out to require (see mobile/README.md's Profile section). Not a
+    replacement for Sign in with Apple below, which stays fully working
+    for whenever that membership exists — just no longer the only way in."""
+    email = body.email.lower()
+    now = datetime.now(timezone.utc)
+    profile_id = generate_profile_id()
+    conn = get_conn()
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "INSERT INTO profiles (id, email, password_hash, nickname, avatar_emoji, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING nickname, avatar_emoji, created_at",
+                (profile_id, email, hash_password(body.password), generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
+            )
+            row = cur.fetchone()
+            token = generate_session_token()
+            cur.execute(
+                "INSERT INTO profile_sessions (token, profile_id, created_at) VALUES (%s, %s, %s)",
+                (token, profile_id, now),
+            )
+        return {"sessionToken": token, "profile": _row_to_profile_response(row)}
+    except psycopg2.errors.UniqueViolation:
+        raise HTTPException(409, "An account with that email already exists") from None
+    finally:
+        conn.close()
+
+
+@app.post("/auth/login")
+@limiter.limit(AUTH_LIMIT)
+def log_in(request: Request, body: LoginBody):
+    email = body.email.lower()
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, password_hash, nickname, avatar_emoji, created_at FROM profiles WHERE email = %s",
+                (email,),
+            )
+            row = cur.fetchone()
+        # The exact same failure for "no such email" and "right email,
+        # wrong password" — confirming which one it was would let an
+        # attacker enumerate registered emails one guess at a time. A
+        # profile that signed up via Apple only (password_hash is null)
+        # correctly falls into this same generic rejection, not a crash.
+        if not row or not row["password_hash"] or not verify_password(body.password, row["password_hash"]):
+            raise HTTPException(401, "Incorrect email or password")
+        now = datetime.now(timezone.utc)
+        token = generate_session_token()
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO profile_sessions (token, profile_id, created_at) VALUES (%s, %s, %s)",
+                (token, row["id"], now),
+            )
+        return {"sessionToken": token, "profile": _row_to_profile_response(row)}
+    finally:
+        conn.close()
+
+
 @app.post("/auth/apple")
-@limiter.limit(MUTATE_LIMIT)
+@limiter.limit(AUTH_LIMIT)
 def sign_in_with_apple(request: Request, body: AppleSignInBody):
     """Verifies the identity token Apple's own native Sign in with Apple
     flow returned to the client, then either finds the matching profile
@@ -699,19 +818,20 @@ def sign_in_with_apple(request: Request, body: AppleSignInBody):
     conn = get_conn()
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT nickname, avatar_emoji, created_at FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
+            cur.execute("SELECT id, nickname, avatar_emoji, created_at FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
             row = cur.fetchone()
             if row is None:
+                profile_id = generate_profile_id()
                 cur.execute(
-                    "INSERT INTO profiles (apple_user_id, nickname, avatar_emoji, created_at, updated_at) "
-                    "VALUES (%s, %s, %s, %s, %s) RETURNING nickname, avatar_emoji, created_at",
-                    (apple_user_id, generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
+                    "INSERT INTO profiles (id, apple_user_id, nickname, avatar_emoji, created_at, updated_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, nickname, avatar_emoji, created_at",
+                    (profile_id, apple_user_id, generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
                 )
                 row = cur.fetchone()
             token = generate_session_token()
             cur.execute(
-                "INSERT INTO profile_sessions (token, apple_user_id, created_at) VALUES (%s, %s, %s)",
-                (token, apple_user_id, now),
+                "INSERT INTO profile_sessions (token, profile_id, created_at) VALUES (%s, %s, %s)",
+                (token, row["id"], now),
             )
         return {"sessionToken": token, "profile": _row_to_profile_response(row)}
     finally:
@@ -726,9 +846,9 @@ def sign_out(request: Request, authorization: str | None = Header(default=None))
     session (and the profile itself) untouched. Deliberately tolerant of
     a missing/already-invalid token (signing out twice, or after the
     token already expired some other way, should never itself be an
-    error) rather than depending on get_current_apple_user_id, which
-    would 401 on exactly the "already signed out" case this needs to
-    handle gracefully."""
+    error) rather than depending on get_current_profile_id, which would
+    401 on exactly the "already signed out" case this needs to handle
+    gracefully."""
     if not authorization or not authorization.startswith("Bearer "):
         return {"ok": True}
     token = authorization.removeprefix("Bearer ")
@@ -743,11 +863,11 @@ def sign_out(request: Request, authorization: str | None = Header(default=None))
 
 @app.get("/profile")
 @limiter.limit(POLL_LIMIT)
-def get_profile(request: Request, apple_user_id: str = Depends(get_current_apple_user_id)):
+def get_profile(request: Request, profile_id: str = Depends(get_current_profile_id)):
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT nickname, avatar_emoji, created_at FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
+            cur.execute("SELECT nickname, avatar_emoji, created_at FROM profiles WHERE id = %s", (profile_id,))
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "Profile not found")
@@ -779,7 +899,7 @@ class UpdateProfileBody(BaseModel):
 
 @app.put("/profile")
 @limiter.limit(MUTATE_LIMIT)
-def update_profile(request: Request, body: UpdateProfileBody, apple_user_id: str = Depends(get_current_apple_user_id)):
+def update_profile(request: Request, body: UpdateProfileBody, profile_id: str = Depends(get_current_profile_id)):
     if body.avatar_emoji is not None and body.avatar_emoji not in AVATAR_EMOJI_CHOICES:
         raise HTTPException(400, "Not a valid avatar choice")
     if body.nickname is None and body.avatar_emoji is None:
@@ -793,9 +913,9 @@ def update_profile(request: Request, body: UpdateProfileBody, apple_user_id: str
                 "nickname = COALESCE(%s, nickname), "
                 "avatar_emoji = COALESCE(%s, avatar_emoji), "
                 "updated_at = %s "
-                "WHERE apple_user_id = %s "
+                "WHERE id = %s "
                 "RETURNING nickname, avatar_emoji, created_at",
-                (body.nickname, body.avatar_emoji, now, apple_user_id),
+                (body.nickname, body.avatar_emoji, now, profile_id),
             )
             row = cur.fetchone()
         return _row_to_profile_response(row)
@@ -805,16 +925,16 @@ def update_profile(request: Request, body: UpdateProfileBody, apple_user_id: str
 
 @app.delete("/profile")
 @limiter.limit(MUTATE_LIMIT)
-def delete_profile(request: Request, apple_user_id: str = Depends(get_current_apple_user_id)):
+def delete_profile(request: Request, profile_id: str = Depends(get_current_profile_id)):
     """Full account deletion — required by App Store Review Guideline
     5.1.1(v) since this app offers account creation, so it must also let
     a user delete that account from within the app, not just stop using
-    it. ON DELETE CASCADE on profile_sessions.apple_user_id means this
-    also signs the user out of every device in the same statement."""
+    it. ON DELETE CASCADE on profile_sessions.profile_id means this also
+    signs the user out of every device in the same statement."""
     conn = get_conn()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM profiles WHERE apple_user_id = %s", (apple_user_id,))
+            cur.execute("DELETE FROM profiles WHERE id = %s", (profile_id,))
         return {"ok": True}
     finally:
         conn.close()

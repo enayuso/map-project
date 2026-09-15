@@ -1,11 +1,11 @@
 /**
- * State + handlers for the profile feature (Sign in with Apple, nickname/
- * avatar customization, account deletion) — see sharing/README.md's
- * Profile section and docs/research/14-naver-kakao-profile-systems.md for
- * the full design. Extracted as its own hook rather than folded into
- * App.tsx directly, same reasoning as every other feature hook in this app
- * (src/errors/useErrorLog.ts's header comment has the fullest version of
- * that argument).
+ * State + handlers for the profile feature (email/password + Sign in with
+ * Apple, nickname/avatar customization, account deletion) — see
+ * sharing/README.md's Profile section and docs/research/14-naver-kakao-
+ * profile-systems.md for the full design. Extracted as its own hook rather
+ * than folded into App.tsx directly, same reasoning as every other feature
+ * hook in this app (src/errors/useErrorLog.ts's header comment has the
+ * fullest version of that argument).
  *
  * Unlike useSharing/useMeetup, this hook owns real per-device secret state
  * (the session token) that has to survive app restarts — see
@@ -17,11 +17,14 @@ import { logError } from '../errors/logger';
 import {
   deleteAccount as requestAccountDeletion,
   fetchProfile,
+  logInWithEmail as logInWithEmailRequest,
   ProfileAuthError,
   signInWithAppleIdentityToken,
   signOutSession,
+  signUpWithEmail as signUpWithEmailRequest,
   updateProfile,
   type Profile,
+  type SignedIn,
 } from './api';
 import { clearStoredSessionToken, getStoredSessionToken, setStoredSessionToken } from './sessionStorage';
 
@@ -33,12 +36,14 @@ export type UseProfile = {
    * finishes — see `loading`). */
   profile: Profile | null;
   /** True only during the one-time check on mount for a previously-stored
-   * session — not re-used for signIn's own in-flight state, see
-   * `signingIn`. */
+   * session — not re-used for any sign-in method's own in-flight state,
+   * see `signingIn`. */
   loading: boolean;
   signingIn: boolean;
   error: string | null;
-  signIn: () => Promise<void>;
+  signUpWithEmail: (email: string, password: string) => Promise<void>;
+  logInWithEmail: (email: string, password: string) => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   updateNickname: (nickname: string) => Promise<void>;
   updateAvatar: (avatarEmoji: string) => Promise<void>;
@@ -104,7 +109,45 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
     }
   };
 
-  const signIn = async () => {
+  // Shared by all three sign-in methods below — same "store the token,
+  // load the profile it came with" step regardless of how the session was
+  // obtained.
+  const applySignedIn = async ({ sessionToken, profile: signedInProfile }: SignedIn) => {
+    sessionTokenRef.current = sessionToken;
+    await setStoredSessionToken(sessionToken);
+    setProfile(signedInProfile);
+  };
+
+  const signUpWithEmail = async (email: string, password: string) => {
+    setError(null);
+    setSigningIn(true);
+    try {
+      await applySignedIn(await signUpWithEmailRequest(email, password));
+    } catch (e) {
+      // sharing/api.ts's parseAuthResponse already extracts the server's
+      // own message (a duplicate email, a too-short password) — show that
+      // directly rather than a generic one, it's the actually useful text.
+      logError('profile:signUp', e);
+      setError(e instanceof Error ? e.message : 'Could not create your account — try again.');
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
+  const logInWithEmail = async (email: string, password: string) => {
+    setError(null);
+    setSigningIn(true);
+    try {
+      await applySignedIn(await logInWithEmailRequest(email, password));
+    } catch (e) {
+      logError('profile:logIn', e);
+      setError(e instanceof Error ? e.message : 'Could not sign in — try again.');
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
+  const signInWithApple = async () => {
     setError(null);
     setSigningIn(true);
     try {
@@ -116,17 +159,14 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
       // come back null, which is exactly what's wanted here.
       const response = await appleAuth.performRequest({ requestedOperation: appleAuth.Operation.LOGIN });
       if (!response.identityToken) throw new Error('Apple did not return an identity token');
-      const { sessionToken, profile: signedInProfile } = await signInWithAppleIdentityToken(response.identityToken);
-      sessionTokenRef.current = sessionToken;
-      await setStoredSessionToken(sessionToken);
-      setProfile(signedInProfile);
+      await applySignedIn(await signInWithAppleIdentityToken(response.identityToken));
     } catch (e) {
       // The user dismissing Apple's own sign-in sheet isn't an error worth
       // surfacing — anything else genuinely is.
       const code = (e as { code?: string } | null)?.code;
       if (code !== appleAuth.Error.CANCELED) {
-        logError('profile:signIn', e);
-        setError('Could not sign in — try again.');
+        logError('profile:signInWithApple', e);
+        setError('Could not sign in with Apple — try again.');
       }
     } finally {
       setSigningIn(false);
@@ -190,7 +230,9 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
     loading,
     signingIn,
     error,
-    signIn,
+    signUpWithEmail,
+    logInWithEmail,
+    signInWithApple,
     signOut,
     updateNickname,
     updateAvatar,
