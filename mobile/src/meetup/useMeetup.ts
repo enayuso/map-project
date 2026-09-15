@@ -29,10 +29,20 @@ import { getSharedPosition } from '../sharing/api';
 import type { SearchResult } from '../search/api';
 
 // How often a participant filled via a live-share code re-polls their
-// position — matches src/sharing/useSharing.ts's own viewing-poll interval,
-// since this is the same underlying mechanism (a live-shared position),
-// just fed into a different consumer.
-const LIVE_SHARE_POLL_MS = 10000;
+// position — the same underlying mechanism as src/sharing/useSharing.ts's
+// own viewing poll, just feeding a different consumer, but deliberately
+// NOT the same 10s interval that hook uses. Found in review: sharing/'s
+// GET /shares/{code} is rate-limited to 30/minute *per client IP*, shared
+// across every feature that polls it, not per code — confirmed
+// empirically against the live service (a burst of 30 rapid requests
+// succeeds, the 31st gets a real 429). At MAX_PARTICIPANTS (5) live-shared
+// slots, a 10s interval is exactly 5 * 6 = 30 requests/minute, saturating
+// that whole budget with zero headroom for anything else from the same
+// device (this app's own separate "view a share" feature, or just
+// ordinary setInterval timing jitter). 15s keeps 5 participants at
+// 5 * 4 = 20/minute, leaving real margin — still a "live" cadence a user
+// would never notice the difference from 10s at.
+const LIVE_SHARE_POLL_MS = 15000;
 
 type CurrentPosition = ReturnType<typeof useCurrentPosition>;
 
@@ -226,14 +236,29 @@ export function useMeetup(
             // moved on to a different code (or none), a failure for the
             // *old* code shouldn't clear the *new* one's live status.
             if (liveShareCodesRef.current[index] !== code) return;
-            // The share expired or was stopped server-side — stop treating
-            // this slot as live (matches useSharing's own "stop pretending"
-            // behavior on a failed push/poll) but leave the participant's
-            // last-known position filled in rather than blanking the slot
-            // out from under the user mid-session. Also surfaces *why* —
-            // found in review: without this, the "🔴 live" badge just
-            // silently disappears with nothing explaining it, easy to
-            // mistake for a UI glitch rather than an expired/stopped share.
+            // A 429 means the shared rate-limit budget (see
+            // LIVE_SHARE_POLL_MS's own doc comment) was hit this tick, not
+            // that the share is actually gone — found in review, alongside
+            // the interval widening above. src/sharing/api.ts's
+            // parseOrThrow throws a real 404 as its own descriptive
+            // message but anything else (429 included) as a plain
+            // `Sharing service ${status}` string, which is how this
+            // distinguishes them without sharing/api.ts needing its own
+            // typed error. Skip this cycle and try again next tick rather
+            // than treating a temporary, self-inflicted rate limit as a
+            // real expiry.
+            if (e instanceof Error && e.message === 'Sharing service 429') {
+              logError('meetup:liveSharePoll:rateLimited', e, { index });
+              return;
+            }
+            // The share genuinely expired or was stopped server-side —
+            // stop treating this slot as live (matches useSharing's own
+            // "stop pretending" behavior on a failed push/poll) but leave
+            // the participant's last-known position filled in rather than
+            // blanking the slot out from under the user mid-session. Also
+            // surfaces *why* — found in review: without this, the
+            // "🔴 live" badge just silently disappears with nothing
+            // explaining it, easy to mistake for a UI glitch.
             logError('meetup:liveSharePoll', e, { index });
             setLiveShareCodes(prev => prev.map((c, i) => (i === index ? null : c)));
             setSharedLocationError('A shared location stopped updating — ask them to re-share their code.');
