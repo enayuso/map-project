@@ -418,6 +418,8 @@ A 9-angle automated review (same methodology as every prior pass this project ha
 
 **Verified**: `tsc --noEmit`/`eslint` clean, full Jest suite 65/65 (one new NaN test). Live in the Simulator: opened Meet Up, confirmed the 📡 button appears correctly on empty rows, and confirmed both the activeParticipantIndex fix and the original Alert.prompt fix together by tapping 📡 directly on an unfocused row — the dialog appeared and the row highlighted as active in the same interaction.
 
+**Follow-up (2026-09-15)**: picked up the `src/lists/api.ts` dedup flagged above. It had its own byte-for-byte copy of the old untyped `parseOrThrow` (predating the `SharingHttpError` upgrade), against the same `sharing` backend service. `parseOrThrow` is now exported from `src/sharing/api.ts` and imported by `src/lists/api.ts` instead of maintained twice — one implementation instead of two silently-drifting ones. Confirmed low-risk before touching it: `getList`/`createList`/`updateList`/`deleteList` have exactly one caller (`useLists.ts`), which only ever does `e instanceof Error` (still true — `SharingHttpError extends Error`), and the lists feature doesn't poll on an interval anywhere, so it was never actually hitting the rate limit in practice — this was a pure reuse fix, not a live bug. `tsc --noEmit`/`eslint` clean, full Jest suite still 65/65, confirmed a fresh app launch starts cleanly with no new errors.
+
 ## Running it (iOS Simulator)
 
 1. Backend must be running: `cd ../backend && docker compose up -d` (see [backend/README.md](../backend/README.md))

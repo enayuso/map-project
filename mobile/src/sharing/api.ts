@@ -44,7 +44,14 @@ export class SharingHttpError extends Error {
   }
 }
 
-async function parseOrThrow<T>(res: Response, notFoundMessage: string): Promise<T> {
+/**
+ * Exported (not just used locally) so src/lists/api.ts — a different
+ * resource on this same backend service, see its own header comment — can
+ * share this one implementation instead of maintaining its own copy. Found
+ * in review: it did maintain its own copy, which had silently drifted out
+ * of sync with this one's SharingHttpError upgrade above.
+ */
+export async function parseOrThrow<T>(res: Response, notFoundMessage: string): Promise<T> {
   if (res.status === 404) throw new Error(notFoundMessage);
   if (!res.ok) throw new SharingHttpError(res.status, `Sharing service ${res.status}`);
   return res.json();

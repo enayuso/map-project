@@ -11,6 +11,8 @@
  * api.ts files.
  */
 
+import { parseOrThrow } from '../sharing/api';
+
 const SHARING_URL = 'http://127.0.0.1:8090';
 
 export type ListPlace = {
@@ -26,12 +28,6 @@ export type SharedList = {
   places: ListPlace[];
   updatedAt: string;
 };
-
-async function parseOrThrow<T>(res: Response, notFoundMessage: string): Promise<T> {
-  if (res.status === 404) throw new Error(notFoundMessage);
-  if (!res.ok) throw new Error(`Sharing service ${res.status}`);
-  return res.json();
-}
 
 export async function createList(label: string, places: ListPlace[]): Promise<{ code: string }> {
   const res = await fetch(`${SHARING_URL}/lists`, {
