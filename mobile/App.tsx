@@ -42,7 +42,12 @@ import DirectionsSearchPanel, {
 } from './src/routing/DirectionsSearchPanel';
 import MapPointPicker from './src/routing/MapPointPicker';
 import NavigationBar from './src/routing/NavigationBar';
-import { getRemainingTrip, getUpcomingManeuver, MANEUVER_ARRIVAL_THRESHOLD_KM } from './src/routing/navigation';
+import {
+  getRemainingTrip,
+  getUpcomingManeuver,
+  gpsSpeedToMph,
+  MANEUVER_ARRIVAL_THRESHOLD_KM,
+} from './src/routing/navigation';
 import { useLiveActivity } from './src/routing/useLiveActivity';
 import PlaceCard, { type TravelPreview } from './src/places/PlaceCard';
 import AttributionFooter from './src/attribution/AttributionFooter';
@@ -472,6 +477,10 @@ function App(): React.JSX.Element {
         })
       : null;
   const navigationArrived = navigationActive && !upcomingManeuver;
+  // The live speedometer during navigation — see gpsSpeedToMph's own doc
+  // comment for why mph (matches Belize's actual road-sign convention) and
+  // why a negative reading means "unavailable," not "reverse."
+  const navigationSpeedMph = navigationActive ? gpsSpeedToMph(currentPosition?.coords.speed) : null;
 
   useEffect(() => {
     if (!upcomingManeuver) return;
@@ -1251,6 +1260,7 @@ function App(): React.JSX.Element {
         distanceToManeuverKm={upcomingManeuver?.distanceToManeuverKm ?? 0}
         remainingDistanceKm={remainingTrip?.distanceKm ?? 0}
         remainingDurationMin={remainingTrip?.durationMin ?? 0}
+        speedMph={navigationSpeedMph}
         onEnd={handleEndNavigation}
       />
 

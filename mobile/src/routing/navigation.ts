@@ -98,6 +98,28 @@ export function getUpcomingManeuver(
   return { index: nextIndex, maneuver, distanceToManeuverKm };
 }
 
+const METERS_PER_SECOND_TO_MPH = 2.2369362920544;
+
+/**
+ * The device's own GPS-derived speed (m/s, from `useCurrentPosition`'s
+ * `coords.speed` — CoreLocation under the hood on iOS), converted to mph —
+ * this app's live speedometer during navigation. mph, not km/h: confirmed
+ * Belize itself posts speed limits and road signage in mph despite being
+ * otherwise metric (a common holdover in former British territories) — the
+ * live reading should match what's actually on the road signs, not what the
+ * rest of this app's distance fields happen to use.
+ *
+ * Returns null for a genuinely unavailable reading — CoreLocation's own
+ * documented convention is a negative value (typically -1) when speed can't
+ * be determined (no recent fix, poor accuracy, a device that doesn't report
+ * it), so this treats any negative input the same way rather than showing a
+ * nonsense negative speed.
+ */
+export function gpsSpeedToMph(metersPerSecond: number | null | undefined): number | null {
+  if (metersPerSecond == null || metersPerSecond < 0) return null;
+  return metersPerSecond * METERS_PER_SECOND_TO_MPH;
+}
+
 /** Sum of the not-yet-completed maneuvers' own lengths/times — a reasonable
  * approximation of what's left, updating in discrete steps as each maneuver
  * completes rather than continuously along the road (same v1 simplification

@@ -10,6 +10,11 @@ type Props = {
   distanceToManeuverKm: number;
   remainingDistanceKm: number;
   remainingDurationMin: number;
+  // The device's own GPS-derived speed in mph (see navigation.ts's
+  // gpsSpeedToMph for why mph, not km/h, and why null means "no current
+  // reading" rather than "stationary"), or null while one isn't available
+  // yet (no fix, or the device hasn't reported one this tick).
+  speedMph: number | null;
   onEnd: () => void;
 };
 
@@ -30,6 +35,7 @@ export default function NavigationBar({
   distanceToManeuverKm,
   remainingDistanceKm,
   remainingDurationMin,
+  speedMph,
   onEnd,
 }: Props) {
   if (!visible) return null;
@@ -51,6 +57,24 @@ export default function NavigationBar({
           )}
         </View>
       </View>
+
+      {/*
+       * The live speedometer — a real GPS reading (see App.tsx's
+       * navigationSpeedMph/navigation.ts's gpsSpeedToMph), not anything
+       * computed from route data, so it's a dedicated badge rather than
+       * folded into the route-summary bar below: matches Kakao/Naver's own
+       * convention of a glanceable, separate speed dial rather than text
+       * buried in a sentence. Hidden (not just showing a stale "0") while
+       * no real reading is available yet, same reasoning as the travel-time
+       * preview elsewhere in this app degrading to a hint instead of a
+       * guess.
+       */}
+      {speedMph !== null && (
+        <View style={styles.speedBadge} accessibilityLabel={`Current speed ${Math.round(speedMph)} miles per hour`}>
+          <Text style={styles.speedValue}>{Math.round(speedMph)}</Text>
+          <Text style={styles.speedUnit}>mph</Text>
+        </View>
+      )}
 
       <View style={styles.bottomBar}>
         <Text style={styles.summary}>
@@ -108,6 +132,37 @@ const styles = StyleSheet.create({
     color: '#e8a23d',
     fontWeight: '600',
     marginTop: 2,
+  },
+  speedBadge: {
+    position: 'absolute',
+    bottom: 84, // clear of bottomBar (bottom:32 + its own ~40 height) below
+    left: 12,
+    zIndex: 9,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#ffffff',
+    borderWidth: 3,
+    borderColor: '#3a3226',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  speedValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#3a3226',
+    lineHeight: 24,
+  },
+  speedUnit: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#8a8578',
+    marginTop: -2,
   },
   bottomBar: {
     position: 'absolute',
