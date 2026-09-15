@@ -1212,15 +1212,29 @@ def delete_profile(request: Request, profile_id: str = Depends(get_current_profi
       to get for free.
     - Any pending email_verification_codes row deleted too — an unverified
       account that gets deleted shouldn't leave a guessable code lying
-      around against a profile_id that no longer has a real owner."""
+      around against a profile_id that no longer has a real owner.
+
+    The UPDATE's `WHERE ... AND deleted_at IS NULL` makes this idempotent —
+    without it, two devices racing a near-simultaneous DELETE /profile for
+    the same account (both still holding valid sessions the instant either
+    request starts) could each run the UPDATE, with the second one
+    silently overwriting deleted_at with a later timestamp and resetting
+    scripts/purge_deleted_profiles.sh's grace-period clock. With the guard,
+    a second call is a genuine no-op on the profiles row (still returns
+    {"ok": True} — deleting an already-deleted account is never itself an
+    error, same "no accidental error" reasoning as sign_out below), and
+    updated_at is bumped alongside deleted_at, matching every other write
+    to this table (see update_profile) instead of freezing at whatever it
+    was before deletion."""
     now = datetime.now(timezone.utc)
     conn = get_conn()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE profiles SET apple_user_id = NULL, email = NULL, password_hash = NULL, deleted_at = %s "
-                "WHERE id = %s",
-                (now, profile_id),
+                "UPDATE profiles SET apple_user_id = NULL, email = NULL, password_hash = NULL, "
+                "deleted_at = %s, updated_at = %s "
+                "WHERE id = %s AND deleted_at IS NULL",
+                (now, now, profile_id),
             )
             cur.execute("DELETE FROM profile_sessions WHERE profile_id = %s", (profile_id,))
             cur.execute("DELETE FROM email_verification_codes WHERE profile_id = %s", (profile_id,))
