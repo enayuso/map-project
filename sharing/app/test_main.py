@@ -192,6 +192,17 @@ class TestStaticContent:
     def test_returns_200(self, path):
         assert client.get(path).status_code == 200
 
+    @pytest.mark.parametrize("path", ["/privacy-policy", "/terms-of-service"])
+    def test_legal_docs_return_html_unauthenticated(self, path):
+        # No Authorization header — an App Store reviewer (or anyone else)
+        # must be able to open these with no account, per Guideline
+        # 5.1.1(i)'s own requirement (see docs/research/15-belize-legal-
+        # compliance-audit.md §2.1).
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "<html" in resp.text.lower()
+
 
 class TestHealth:
     def test_health(self):
@@ -221,7 +232,7 @@ def _unique_email() -> str:
 class TestAuth:
     def test_signup_returns_session_and_profile(self):
         email = _unique_email()
-        resp = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        resp = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
         assert resp.status_code == 200
         body = resp.json()
         profile = body["profile"]
@@ -234,24 +245,38 @@ class TestAuth:
 
     def test_signup_duplicate_email_409(self):
         email = _unique_email()
-        first = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        first = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
         assert first.status_code == 200
 
-        dupe = client.post("/auth/signup", json={"email": email, "password": "otherpass456"})
+        dupe = client.post("/auth/signup", json={"email": email, "password": "otherpass456", "termsAccepted": True})
         assert dupe.status_code == 409
 
         client.delete("/profile", headers=_auth_header(first.json()["sessionToken"]))
 
     def test_signup_too_short_password_422(self):
-        assert client.post("/auth/signup", json={"email": _unique_email(), "password": "short"}).status_code == 422
+        assert client.post("/auth/signup", json={"email": _unique_email(), "password": "short", "termsAccepted": True}).status_code == 422
 
     def test_signup_invalid_email_422(self):
-        resp = client.post("/auth/signup", json={"email": "not-an-email", "password": "testpass123"})
+        resp = client.post("/auth/signup", json={"email": "not-an-email", "password": "testpass123", "termsAccepted": True})
+        assert resp.status_code == 422
+
+    def test_signup_rejects_false_terms_accepted(self):
+        # _require_terms_accepted's own reason to exist: `termsAccepted:
+        # false` is present (unlike the next test below), so a plain
+        # `bool` field alone wouldn't reject it — only the validator does.
+        resp = client.post(
+            "/auth/signup",
+            json={"email": _unique_email(), "password": "testpass123", "termsAccepted": False},
+        )
+        assert resp.status_code == 422
+
+    def test_signup_rejects_missing_terms_accepted(self):
+        resp = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
         assert resp.status_code == 422
 
     def test_login_success(self):
         email = _unique_email()
-        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
 
         login = client.post("/auth/login", json={"email": email, "password": "testpass123"})
         assert login.status_code == 200
@@ -261,7 +286,7 @@ class TestAuth:
 
     def test_login_wrong_password_and_nonexistent_email_get_identical_401(self):
         email = _unique_email()
-        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
 
         wrong_password = client.post("/auth/login", json={"email": email, "password": "wrongpass789"})
         nonexistent = client.post("/auth/login", json={"email": _unique_email(), "password": "whatever123"})
@@ -281,7 +306,7 @@ class TestProfile:
         assert client.get("/profile", headers=_auth_header("garbage-token")).status_code == 401
 
     def test_update_profile_nickname_and_avatar(self):
-        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
 
         upd = client.put("/profile", json={"nickname": "  Sea Turtle  ", "avatarEmoji": "🐢"}, headers=_auth_header(token))
@@ -293,7 +318,7 @@ class TestProfile:
         client.delete("/profile", headers=_auth_header(token))
 
     def test_update_profile_rejects_blank_nickname(self):
-        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
 
         assert client.put("/profile", json={"nickname": "   "}, headers=_auth_header(token)).status_code == 422
@@ -301,7 +326,7 @@ class TestProfile:
         client.delete("/profile", headers=_auth_header(token))
 
     def test_update_profile_rejects_invalid_avatar(self):
-        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
 
         assert client.put("/profile", json={"avatarEmoji": "🍕"}, headers=_auth_header(token)).status_code == 400
@@ -309,7 +334,7 @@ class TestProfile:
         client.delete("/profile", headers=_auth_header(token))
 
     def test_update_profile_requires_at_least_one_field(self):
-        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
 
         assert client.put("/profile", json={}, headers=_auth_header(token)).status_code == 400
@@ -318,7 +343,7 @@ class TestProfile:
 
     def test_sign_out_is_idempotent_and_tolerant_of_missing_header(self):
         email = _unique_email()
-        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
 
         assert client.delete("/auth/session", headers=_auth_header(token)).json() == {"ok": True}
@@ -362,7 +387,7 @@ class TestAccountDeletion:
             conn.close()
 
     def test_delete_kills_session_immediately(self):
-        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
 
         assert client.delete("/profile", headers=_auth_header(token)).status_code == 200
@@ -370,20 +395,20 @@ class TestAccountDeletion:
 
     def test_delete_frees_email_for_immediate_reuse(self):
         email = _unique_email()
-        first = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        first = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
         client.delete("/profile", headers=_auth_header(first.json()["sessionToken"]))
 
         # Same email, brand-new signup, right away — no UniqueViolation,
         # no need to wait out the 30-day grace period (Postgres doesn't
         # treat two NULLs as equal, so the soft-deleted row's now-NULL
         # email doesn't block this — see create_profiles_table.sh).
-        second = client.post("/auth/signup", json={"email": email, "password": "anotherpass456"})
+        second = client.post("/auth/signup", json={"email": email, "password": "anotherpass456", "termsAccepted": True})
         assert second.status_code == 200
 
         client.delete("/profile", headers=_auth_header(second.json()["sessionToken"]))
 
     def test_delete_twice_returns_401_not_error(self):
-        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": _unique_email(), "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
 
         assert client.delete("/profile", headers=_auth_header(token)).status_code == 200
@@ -394,7 +419,7 @@ class TestAccountDeletion:
 
     def test_updated_at_bumps_alongside_deleted_at(self):
         email = _unique_email()
-        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
         profile_id = self._profile_id_for_email(email)
 
@@ -430,7 +455,7 @@ class TestAccountDeletion:
         # row, and confirm it's refused (0 rows) rather than silently
         # resetting the grace-period clock.
         email = _unique_email()
-        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123"})
+        signup = client.post("/auth/signup", json={"email": email, "password": "testpass123", "termsAccepted": True})
         token = signup.json()["sessionToken"]
         profile_id = self._profile_id_for_email(email)
 
@@ -471,8 +496,9 @@ class TestAccountDeletion:
         try:
             with conn, conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO profiles (id, email, password_hash, nickname, avatar_emoji) "
-                    "VALUES (%s, %s, %s, %s, %s)",
+                    "INSERT INTO profiles (id, email, password_hash, nickname, avatar_emoji, "
+                    "terms_accepted_at, terms_version) "
+                    "VALUES (%s, %s, %s, %s, %s, now(), 'test')",
                     (test_id, _unique_email(), "hash", "x", "🧭"),
                 )
 

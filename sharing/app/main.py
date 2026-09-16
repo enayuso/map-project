@@ -73,7 +73,7 @@ import psycopg2
 import psycopg2.errors
 import psycopg2.extras
 import requests
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -660,6 +660,19 @@ def generate_profile_id() -> str:
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 72
 
+# Bump this (and the effective date at the top of sharing/data/privacy_
+# policy.html and sharing/data/terms_of_service.html) whenever either
+# document changes in a way that should prompt existing users to
+# re-confirm — recorded per-profile in profiles.terms_version alongside
+# terms_accepted_at, evidence-ready per the Electronic Transactions Act's
+# own logic (see docs/research/15-belize-legal-compliance-audit.md §3.2):
+# proving *which* version of the agreement someone accepted, not just
+# that they tapped something at some point. No re-confirmation flow
+# exists yet for existing users when this changes — a real gap, but out
+# of scope for the first version of this (nothing has ever needed it,
+# since this constant has never changed before now).
+TERMS_VERSION = "2026-09-16"
+
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -848,8 +861,33 @@ def issue_verification_code(cur, profile_id: str, email: str) -> None:
     send_verification_email(email, code)
 
 
+# Shared by SignupBody's field_validator below and sign_in_with_apple's own
+# manual check (added 2026-09-16, see docs/research/15-belize-legal-
+# compliance-audit.md's own action item #1) — the two paths that create a
+# brand-new profile. LoginBody deliberately has no such field: a returning
+# user already accepted at signup, nothing new to confirm. One shared
+# message string, not a shared function: a Pydantic field_validator must
+# raise ValueError for Pydantic to turn it into a clean 422, while
+# sign_in_with_apple's manual, later check (see its own comment for why it
+# can't run at the Pydantic-body level) needs an HTTPException instead —
+# raising ValueError directly inside a route function would surface as an
+# unhandled 500, not a controlled 422.
+TERMS_NOT_ACCEPTED_MESSAGE = "You must accept the Terms of Service and Privacy Policy to create an account"
+
+
 class AppleSignInBody(BaseModel):
     identity_token: str = Field(alias="identityToken", max_length=4096)
+    # Deliberately NOT validated here the way SignupBody's own field below
+    # is — unlike /auth/signup, which always creates a brand-new account,
+    # this same request body serves both a first-ever sign-in (needs to
+    # have accepted) and a returning user's routine sign-in (already
+    # accepted once; nothing to re-confirm, same reasoning as LoginBody).
+    # Pydantic validates before sign_in_with_apple ever runs, before it's
+    # known which case this is — an unconditional check here would
+    # wrongly reject a returning user's sign-in for not re-checking a
+    # box they already checked. sign_in_with_apple itself checks this
+    # field manually, only on the branch that actually creates a profile.
+    terms_accepted: bool = Field(alias="termsAccepted")
 
     class Config:
         populate_by_name = True
@@ -858,6 +896,22 @@ class AppleSignInBody(BaseModel):
 class SignupBody(BaseModel):
     email: EmailStr
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    terms_accepted: bool = Field(alias="termsAccepted")
+
+    class Config:
+        populate_by_name = True
+
+    @field_validator("terms_accepted")
+    @classmethod
+    def _validate_terms_accepted(cls, v: bool) -> bool:
+        # Every /auth/signup call creates a brand-new account (a returning
+        # user calls /auth/login instead, which has no such field at all)
+        # — unlike AppleSignInBody, there's no "might be a returning user"
+        # ambiguity here, so this can safely run unconditionally at the
+        # Pydantic-body level.
+        if not v:
+            raise ValueError(TERMS_NOT_ACCEPTED_MESSAGE)
+        return v
 
 
 class LoginBody(BaseModel):
@@ -889,7 +943,16 @@ def sign_up(request: Request, body: SignupBody):
     the Apple Developer Program's paid membership Sign in with Apple
     turned out to require (see mobile/README.md's Profile section). Not a
     replacement for Sign in with Apple below, which stays fully working
-    for whenever that membership exists — just no longer the only way in."""
+    for whenever that membership exists — just no longer the only way in.
+
+    body.terms_accepted must already be true by the time this runs (see
+    SignupBody's own field_validator) — recorded here as terms_accepted_at/
+    terms_version rather than just trusted-and-discarded, since it's the
+    actual moment (added 2026-09-16) this app has a real electronic
+    agreement with the user at all — see docs/research/15-belize-legal-
+    compliance-audit.md §3.2 for why "the app validated it electronically"
+    was never the real gap; "the app never showed any terms to agree to
+    in the first place" was."""
     email = body.email.lower()
     now = datetime.now(timezone.utc)
     profile_id = generate_profile_id()
@@ -897,9 +960,21 @@ def sign_up(request: Request, body: SignupBody):
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "INSERT INTO profiles (id, email, password_hash, email_verified, nickname, avatar_emoji, created_at, updated_at) "
-                "VALUES (%s, %s, %s, FALSE, %s, %s, %s, %s) RETURNING nickname, avatar_emoji, created_at, email_verified",
-                (profile_id, email, hash_password(body.password), generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
+                "INSERT INTO profiles (id, email, password_hash, email_verified, nickname, avatar_emoji, "
+                "created_at, updated_at, terms_accepted_at, terms_version) "
+                "VALUES (%s, %s, %s, FALSE, %s, %s, %s, %s, %s, %s) "
+                "RETURNING nickname, avatar_emoji, created_at, email_verified",
+                (
+                    profile_id,
+                    email,
+                    hash_password(body.password),
+                    generate_default_nickname(),
+                    DEFAULT_AVATAR_EMOJI,
+                    now,
+                    now,
+                    now,
+                    TERMS_VERSION,
+                ),
             )
             row = cur.fetchone()
             token = generate_session_token()
@@ -953,7 +1028,13 @@ def sign_in_with_apple(request: Request, body: AppleSignInBody):
     flow returned to the client, then either finds the matching profile
     or creates one on the spot — there's no separate "create account"
     step; the first successful sign-in *is* account creation, same as the
-    real Sign in with Apple UX everywhere else it's used."""
+    real Sign in with Apple UX everywhere else it's used.
+
+    body.terms_accepted is only relevant on the account-creation branch
+    below (an existing profile signing back in doesn't need to re-confirm
+    anything — see AppleSignInBody's own comment) but the client sends it
+    unconditionally, since it can't know in advance whether this
+    particular sign-in will turn out to be a first-time one."""
     apple_user_id = verify_apple_identity_token(body.identity_token)
     now = datetime.now(timezone.utc)
     conn = get_conn()
@@ -965,11 +1046,21 @@ def sign_in_with_apple(request: Request, body: AppleSignInBody):
             )
             row = cur.fetchone()
             if row is None:
+                # Only reached on a genuinely first-ever sign-in for this
+                # Apple user id — exactly where this actually needs to be
+                # checked (see AppleSignInBody's own comment for why it
+                # can't run at the Pydantic-body level here). HTTPException,
+                # not ValueError — this runs inside the route function
+                # itself, not a Pydantic validator.
+                if not body.terms_accepted:
+                    raise HTTPException(422, TERMS_NOT_ACCEPTED_MESSAGE)
                 profile_id = generate_profile_id()
                 cur.execute(
-                    "INSERT INTO profiles (id, apple_user_id, nickname, avatar_emoji, created_at, updated_at) "
-                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, nickname, avatar_emoji, created_at, email_verified",
-                    (profile_id, apple_user_id, generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now),
+                    "INSERT INTO profiles (id, apple_user_id, nickname, avatar_emoji, created_at, updated_at, "
+                    "terms_accepted_at, terms_version) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                    "RETURNING id, nickname, avatar_emoji, created_at, email_verified",
+                    (profile_id, apple_user_id, generate_default_nickname(), DEFAULT_AVATAR_EMOJI, now, now, now, TERMS_VERSION),
                 )
                 row = cur.fetchone()
             token = generate_session_token()
@@ -1299,6 +1390,21 @@ def read_json_data(filename: str):
         return json.load(f)
 
 
+def read_html_data(filename: str) -> Response:
+    """Same "curated file, re-read fresh on every request, no rebuild
+    needed" pattern as read_json_data above, for the two legal documents
+    (added 2026-09-16 per docs/research/15-belize-legal-compliance-audit.md)
+    — plain hand-edited HTML rather than JSON, since these are meant to be
+    read directly by a person in a browser, not consumed by the mobile
+    client. Deliberately unauthenticated and served under STATIC_LIMIT: an
+    App Store reviewer (or anyone else) needs to be able to open these
+    with no account, matching Guideline 5.1.1(i)'s own requirement that a
+    privacy policy be reachable without signing in."""
+    path = os.path.join(DATA_DIR, filename)
+    with open(path, "r", encoding="utf-8") as f:
+        return Response(content=f.read(), media_type="text/html")
+
+
 @app.get("/ferry-routes")
 @limiter.limit(STATIC_LIMIT)
 def get_ferry_routes(request: Request):
@@ -1321,6 +1427,18 @@ def get_seasonal_highlights(request: Request):
 @limiter.limit(STATIC_LIMIT)
 def get_border_crossings(request: Request):
     return read_json_data("border_crossings.json")
+
+
+@app.get("/privacy-policy")
+@limiter.limit(STATIC_LIMIT)
+def get_privacy_policy(request: Request):
+    return read_html_data("privacy_policy.html")
+
+
+@app.get("/terms-of-service")
+@limiter.limit(STATIC_LIMIT)
+def get_terms_of_service(request: Request):
+    return read_html_data("terms_of_service.html")
 
 
 @app.get("/health")

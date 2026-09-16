@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
+import { Alert, Linking, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
 import {
   Map,
   Camera,
@@ -105,6 +105,7 @@ import { updateWidgetData } from './src/widget/api';
 import { weatherCodeInfo } from './src/weather/weatherCodes';
 import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
 import { useMoreMenu } from './src/menu/useMoreMenu';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from './src/legal/api';
 import ErrorLogPanel from './src/errors/ErrorLogPanel';
 import { logError } from './src/errors/logger';
 import { useErrorLog } from './src/errors/useErrorLog';
@@ -938,6 +939,17 @@ function App(): React.JSX.Element {
 
   const appearanceLabel = preference === 'system' ? 'System' : preference === 'light' ? 'Light' : 'Dark';
 
+  // One row for both documents rather than two near-identical rows for a
+  // rarely-tapped feature — see src/legal/api.ts's own comment for why
+  // these open in the system browser instead of a native-rendered screen.
+  const openLegalDocs = () => {
+    Alert.alert('Legal', undefined, [
+      { text: 'Privacy Policy', onPress: () => Linking.openURL(PRIVACY_POLICY_URL) },
+      { text: 'Terms of Service', onPress: () => Linking.openURL(TERMS_OF_SERVICE_URL) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const moreMenuItems: MoreMenuItem[] = [
     {
       key: 'profile',
@@ -966,6 +978,7 @@ function App(): React.JSX.Element {
       active: diveSites.active,
     },
     { key: 'seasonal', icon: '🌴', label: 'Seasonal highlights', onPress: seasonal.toggle },
+    { key: 'legal', icon: '📄', label: 'Privacy & Terms', onPress: openLegalDocs },
     { key: 'errorLog', icon: '🐞', label: 'Error log', onPress: errorLog.toggle },
   ];
 

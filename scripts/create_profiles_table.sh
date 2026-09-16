@@ -105,10 +105,30 @@
 #   scripts/cleanup_expired_shares.sh precedent for "a script that purges
 #   expired rows."
 #
-# NOTE (re-run from scratch, 2026-09-15): confirmed zero real rows existed
-# in any of these tables before this change (or the email_verified one
-# before it) — no Apple sign-in has completed past the paid-account wall,
-# and the only email/password rows ever created were this session's own
+# terms_accepted_at/terms_version (added 2026-09-16, see docs/research/
+# 15-belize-legal-compliance-audit.md's own action item #1): every new
+# profile now records when, and against which version of, the Terms of
+# Service + Privacy Policy (sharing/data/terms_of_service.html and
+# privacy_policy.html, served by main.py's own GET endpoints) the user
+# agreed to at signup — main.py's SignupBody/AppleSignInBody both reject
+# a request that doesn't confirm acceptance (see _require_terms_
+# accepted), and TERMS_VERSION is the single source of truth for the
+# current version string. Both NOT NULL and never touched by
+# delete_profile's soft-delete (unlike apple_user_id/email/password_hash)
+# — this is a historical consent record, not an auth credential, and
+# stays intact for the same evidence-readiness reason the Electronic
+# Transactions Act's own logic calls for (proving *which* version of the
+# agreement someone actually accepted, not just that a checkbox existed
+# at signup). No re-confirmation flow exists yet for existing users if
+# this version ever changes — a real, acknowledged gap, not an oversight;
+# out of scope until it's actually needed, since this is the version's
+# first value.
+#
+# NOTE (re-run from scratch, 2026-09-16, same as every prior pass):
+# confirmed zero real rows existed in any of these tables before this
+# change (or the email_verified/deleted_at ones before it) — no Apple
+# sign-in has completed past the paid-account wall, and the only
+# email/password rows ever created were this session's own
 # live-tested-then-deleted test accounts — dropping and recreating, not a
 # migration, since there was nothing real to migrate.
 set -euo pipefail
@@ -130,6 +150,8 @@ CREATE TABLE profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
+  terms_accepted_at TIMESTAMPTZ NOT NULL,
+  terms_version TEXT NOT NULL,
   CONSTRAINT profiles_has_an_auth_method CHECK (
     (deleted_at IS NULL AND (apple_user_id IS NOT NULL OR (email IS NOT NULL AND password_hash IS NOT NULL)))
     OR

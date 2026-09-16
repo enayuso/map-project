@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import appleAuth, { AppleButton } from '@invertase/react-native-apple-authentication';
 import { useTheme } from '../theme/ThemeContext';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../legal/api';
 import { AVATAR_EMOJI_CHOICES, type Profile } from './api';
 
 // Naver/Kakao both have profile creation/customization — see
@@ -33,9 +34,9 @@ type Props = {
   loading: boolean;
   signingIn: boolean;
   error: string | null;
-  onSignUpWithEmail: (email: string, password: string) => void;
+  onSignUpWithEmail: (email: string, password: string, termsAccepted: boolean) => void;
   onLogInWithEmail: (email: string, password: string) => void;
-  onSignInWithApple: () => void;
+  onSignInWithApple: (termsAccepted: boolean) => void;
   onSignOut: () => void;
   onUpdateNickname: (nickname: string) => void;
   onUpdateAvatar: (avatarEmoji: string) => void;
@@ -69,6 +70,12 @@ export default function ProfilePanel({
   const [emailDraft, setEmailDraft] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
   const [verifyCodeDraft, setVerifyCodeDraft] = useState('');
+  // Only relevant for signup — added 2026-09-16, see sharing/README.md's
+  // Profile section and docs/research/15-belize-legal-compliance-audit.md
+  // §7 action item #1. Deliberately starts (and resets to) false: never
+  // silently defaulted true, since the whole point is a real, affirmative
+  // confirmation, not a checkbox that happens to already be ticked.
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Resyncs the editable draft whenever the real nickname changes from
   // outside this input (signing in, or a save from this same input
@@ -86,6 +93,7 @@ export default function ProfilePanel({
     if (!profile) {
       setEmailDraft('');
       setPasswordDraft('');
+      setTermsAccepted(false);
     }
   }, [profile]);
 
@@ -102,11 +110,15 @@ export default function ProfilePanel({
 
   const trimmedEmail = emailDraft.trim();
   const canSubmitAuthForm =
-    trimmedEmail.length > 0 && passwordDraft.length >= (authMode === 'signup' ? PASSWORD_MIN_LENGTH : 1);
+    trimmedEmail.length > 0 &&
+    passwordDraft.length >= (authMode === 'signup' ? PASSWORD_MIN_LENGTH : 1) &&
+    // Login is a returning user re-confirming nothing new — only signup
+    // (a brand-new account) needs the checkbox.
+    (authMode === 'login' || termsAccepted);
 
   const submitAuthForm = () => {
     if (!canSubmitAuthForm) return;
-    if (authMode === 'signup') onSignUpWithEmail(trimmedEmail, passwordDraft);
+    if (authMode === 'signup') onSignUpWithEmail(trimmedEmail, passwordDraft, termsAccepted);
     else onLogInWithEmail(trimmedEmail, passwordDraft);
   };
 
@@ -282,6 +294,38 @@ export default function ProfilePanel({
               accessibilityLabel="Password"
             />
 
+            {authMode === 'signup' && (
+              <Pressable
+                style={styles.termsRow}
+                onPress={() => setTermsAccepted(v => !v)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: termsAccepted }}
+                accessibilityLabel="Agree to the Terms of Service and Privacy Policy">
+                <View
+                  style={[
+                    styles.checkbox,
+                    { borderColor: colors.dividerStrong },
+                    termsAccepted && { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+                  ]}>
+                  {termsAccepted && <Text style={[styles.checkboxMark, { color: colors.onTextPrimary }]}>✓</Text>}
+                </View>
+                <Text style={[styles.termsText, { color: colors.textSecondary }]}>
+                  I agree to the{' '}
+                  <Text
+                    style={[styles.termsLink, { color: colors.accent }]}
+                    onPress={() => Linking.openURL(TERMS_OF_SERVICE_URL)}>
+                    Terms of Service
+                  </Text>{' '}
+                  and{' '}
+                  <Text
+                    style={[styles.termsLink, { color: colors.accent }]}
+                    onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+                    Privacy Policy
+                  </Text>
+                </Text>
+              </Pressable>
+            )}
+
             <Pressable
               style={[
                 styles.actionButton,
@@ -325,7 +369,7 @@ export default function ProfilePanel({
                 buttonStyle={scheme === 'dark' ? AppleButton.Style.WHITE : AppleButton.Style.BLACK}
                 cornerRadius={20}
                 style={styles.appleButton}
-                onPress={onSignInWithApple}
+                onPress={() => onSignInWithApple(termsAccepted)}
               />
             )}
           </ScrollView>
@@ -524,6 +568,34 @@ const styles = StyleSheet.create({
   toggleModeLabel: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    marginTop: 1,
+  },
+  checkboxMark: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  termsLink: {
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   dividerRow: {
     flexDirection: 'row',

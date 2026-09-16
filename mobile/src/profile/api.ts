@@ -78,11 +78,11 @@ function authHeaders(sessionToken: string): Record<string, string> {
   return { Authorization: `Bearer ${sessionToken}` };
 }
 
-export async function signUpWithEmail(email: string, password: string): Promise<SignedIn> {
+export async function signUpWithEmail(email: string, password: string, termsAccepted: boolean): Promise<SignedIn> {
   const res = await fetch(`${SHARING_URL}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, termsAccepted }),
   });
   return parseAuthResponse(res);
 }
@@ -96,11 +96,16 @@ export async function logInWithEmail(email: string, password: string): Promise<S
   return parseAuthResponse(res);
 }
 
-export async function signInWithAppleIdentityToken(identityToken: string): Promise<SignedIn> {
+export async function signInWithAppleIdentityToken(identityToken: string, termsAccepted: boolean): Promise<SignedIn> {
+  // termsAccepted only actually matters if this turns out to be a
+  // first-ever sign-in for this Apple id — sent unconditionally since the
+  // client can't know that in advance; see sign_in_with_apple's own
+  // comment in main.py for why a returning user's sign-in isn't blocked
+  // by not having (re-)checked this on this particular attempt.
   const res = await fetch(`${SHARING_URL}/auth/apple`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identityToken }),
+    body: JSON.stringify({ identityToken, termsAccepted }),
   });
   return parseAuthResponse(res);
 }

@@ -43,9 +43,9 @@ export type UseProfile = {
   loading: boolean;
   signingIn: boolean;
   error: string | null;
-  signUpWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, termsAccepted: boolean) => Promise<void>;
   logInWithEmail: (email: string, password: string) => Promise<void>;
-  signInWithApple: () => Promise<void>;
+  signInWithApple: (termsAccepted: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   updateNickname: (nickname: string) => Promise<void>;
   updateAvatar: (avatarEmoji: string) => Promise<void>;
@@ -126,11 +126,11 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
     setProfile(signedInProfile);
   };
 
-  const signUpWithEmail = async (email: string, password: string) => {
+  const signUpWithEmail = async (email: string, password: string, termsAccepted: boolean) => {
     setError(null);
     setSigningIn(true);
     try {
-      await applySignedIn(await signUpWithEmailRequest(email, password));
+      await applySignedIn(await signUpWithEmailRequest(email, password, termsAccepted));
     } catch (e) {
       // sharing/api.ts's parseAuthResponse already extracts the server's
       // own message (a duplicate email, a too-short password) — show that
@@ -155,7 +155,7 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
     }
   };
 
-  const signInWithApple = async () => {
+  const signInWithApple = async (termsAccepted: boolean) => {
     setError(null);
     setSigningIn(true);
     try {
@@ -167,7 +167,7 @@ export function useProfile(closeUtilityPanels: () => void): UseProfile {
       // come back null, which is exactly what's wanted here.
       const response = await appleAuth.performRequest({ requestedOperation: appleAuth.Operation.LOGIN });
       if (!response.identityToken) throw new Error('Apple did not return an identity token');
-      await applySignedIn(await signInWithAppleIdentityToken(response.identityToken));
+      await applySignedIn(await signInWithAppleIdentityToken(response.identityToken, termsAccepted));
     } catch (e) {
       // The user dismissing Apple's own sign-in sheet isn't an error worth
       // surfacing — anything else genuinely is.
