@@ -329,6 +329,28 @@ def delete_list(request: Request, code: str):
         conn.close()
 
 
+# A basic, deliberately small first line of defense against obviously
+# abusive/spam free text in a hazard report's `note` field — added
+# 2026-09-16 for App Store Guideline 1.2's "filter objectionable content
+# before posting" requirement (see docs/research/15-belize-legal-
+# compliance-audit.md and sharing/README.md's own follow-up for the full
+# Kakao/Naver/Tmap comparison this was scaled down from). Not attempting
+# Kakao-grade fake-review/profanity detection — a static substring
+# blocklist covers the realistic abuse surface for this app's real scale
+# (a handful of reports a day, not thousands), and anything subtler than
+# this is exactly what the new report_count/review_hazard_reports.py flow
+# right below exists to catch after the fact instead.
+BLOCKED_NOTE_SUBSTRINGS = (
+    "fuck", "shit", "asshole", "bitch", "cunt", "nigger", "faggot",
+    "http://", "https://", "www.",
+)
+
+
+def contains_blocked_content(text: str) -> bool:
+    lowered = text.lower()
+    return any(term in lowered for term in BLOCKED_NOTE_SUBSTRINGS)
+
+
 class ReportHazardBody(BaseModel):
     # Not constrained to a fixed enum on purpose — HAZARD_TYPE_TTL below
     # already falls back to a plain default for any type it doesn't
@@ -338,6 +360,13 @@ class ReportHazardBody(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
     note: str | None = Field(default=None, max_length=140)
+
+    @field_validator("note")
+    @classmethod
+    def note_must_not_contain_blocked_content(cls, v: str | None) -> str | None:
+        if v and contains_blocked_content(v):
+            raise ValueError("That note can't be posted — remove any links or inappropriate language")
+        return v
 
 
 # Per-type default lifetime — a checkpoint or crash is usually gone within a
@@ -494,6 +523,47 @@ def delete_hazard(request: Request, hazard_id: int, delete_token: str = Query(mi
             )
             if cur.rowcount == 0:
                 raise HTTPException(404, "Report not found or wrong token")
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+# Fixed, small reason set — no free-text "why are you reporting this"
+# field, deliberately: this is a lightweight flag for a human to look at,
+# not a legal complaint (see sharing/README.md's own follow-up for why
+# that's the right scale here, versus Kakao/Naver's ID-verified
+# rights-infringement pipeline for map reviews). Anyone can report — no
+# account, no delete_token needed, same as confirm_hazard below; reporting
+# someone else's report isn't a privileged action the way retracting your
+# own is.
+HazardReportReason = Literal["not_here", "spam", "duplicate", "inappropriate"]
+
+
+class ReportHazardIssueBody(BaseModel):
+    reason: HazardReportReason
+
+
+@app.post("/hazards/{hazard_id}/report")
+@limiter.limit(MUTATE_LIMIT)
+def report_hazard_issue(request: Request, hazard_id: int, body: ReportHazardIssueBody):
+    """App Store Guideline 1.2's "mechanism to report offensive content"
+    for this app's one always-live, unmoderated UGC surface (hazard
+    reports post immediately — unlike poi_corrections, which never go
+    live without a human approving first). Bumps report_count and
+    overwrites last_report_reason; never auto-hides or auto-deletes
+    anything — scripts/review_hazard_reports.py is where a human (you, at
+    this scale) actually acts on it, same "queue, not auto-mutation"
+    philosophy as review_poi_corrections.py."""
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE hazard_reports SET report_count = report_count + 1, last_report_reason = %s "
+                "WHERE id = %s AND expires_at > %s",
+                (body.reason, hazard_id, datetime.now(timezone.utc)),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(404, "Report not found or expired")
         return {"ok": True}
     finally:
         conn.close()

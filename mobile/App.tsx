@@ -105,7 +105,7 @@ import { updateWidgetData } from './src/widget/api';
 import { weatherCodeInfo } from './src/weather/weatherCodes';
 import MoreMenu, { type MoreMenuItem } from './src/menu/MoreMenu';
 import { useMoreMenu } from './src/menu/useMoreMenu';
-import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from './src/legal/api';
+import { PRIVACY_POLICY_URL, SUPPORT_EMAIL_URL, TERMS_OF_SERVICE_URL } from './src/legal/api';
 import ErrorLogPanel from './src/errors/ErrorLogPanel';
 import { logError } from './src/errors/logger';
 import { useErrorLog } from './src/errors/useErrorLog';
@@ -979,6 +979,7 @@ function App(): React.JSX.Element {
     },
     { key: 'seasonal', icon: '🌴', label: 'Seasonal highlights', onPress: seasonal.toggle },
     { key: 'legal', icon: '📄', label: 'Privacy & Terms', onPress: openLegalDocs },
+    { key: 'contact', icon: '✉️', label: 'Contact / report a problem', onPress: () => Linking.openURL(SUPPORT_EMAIL_URL) },
     { key: 'errorLog', icon: '🐞', label: 'Error log', onPress: errorLog.toggle },
   ];
 
@@ -1551,9 +1552,11 @@ function App(): React.JSX.Element {
         isMine={hazards.isSelectedMine}
         confirming={hazards.confirming}
         deleting={hazards.deleting}
+        reportingIssue={hazards.reportingIssue}
         onClose={() => hazards.select(null)}
         onConfirm={hazards.confirmSelected}
         onDelete={hazards.deleteSelected}
+        onReportIssue={hazards.reportSelectedIssue}
         onDismiss={modals.hazardInfo.onDismiss}
       />
 

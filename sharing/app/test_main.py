@@ -160,6 +160,42 @@ class TestHazards:
         resp = client.delete("/hazards/1", params={"delete_token": "short"})
         assert resp.status_code == 422
 
+    def test_report_issue_increments_count_and_records_reason(self):
+        resp = client.post("/hazards", json={"type": "flooding", **BELIZE_CITY})
+        hazard_id, token = resp.json()["id"], resp.json()["deleteToken"]
+
+        assert client.post(f"/hazards/{hazard_id}/report", json={"reason": "spam"}).status_code == 200
+        assert client.post(f"/hazards/{hazard_id}/report", json={"reason": "not_here"}).status_code == 200
+
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT report_count, last_report_reason FROM hazard_reports WHERE id = %s", (hazard_id,)
+                )
+                report_count, last_reason = cur.fetchone()
+                assert report_count == 2
+                assert last_reason == "not_here"  # overwritten, not appended
+        finally:
+            conn.close()
+
+        client.delete(f"/hazards/{hazard_id}", params={"delete_token": token})
+
+    def test_report_issue_rejects_invalid_reason(self):
+        resp = client.post("/hazards", json={"type": "flooding", **BELIZE_CITY})
+        hazard_id, token = resp.json()["id"], resp.json()["deleteToken"]
+
+        assert client.post(f"/hazards/{hazard_id}/report", json={"reason": "bogus"}).status_code == 422
+
+        client.delete(f"/hazards/{hazard_id}", params={"delete_token": token})
+
+    def test_report_issue_unknown_id_404(self):
+        assert client.post("/hazards/999999999/report", json={"reason": "spam"}).status_code == 404
+
+    def test_rejects_blocked_content_in_note(self):
+        resp = client.post("/hazards", json={"type": "flooding", **BELIZE_CITY, "note": "check out http://spam.example"})
+        assert resp.status_code == 422
+
 
 class TestPoiCorrections:
     def test_submit_and_list(self):

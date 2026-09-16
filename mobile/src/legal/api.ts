@@ -15,3 +15,15 @@ const SHARING_URL = 'http://127.0.0.1:8090';
 
 export const PRIVACY_POLICY_URL = `${SHARING_URL}/privacy-policy`;
 export const TERMS_OF_SERVICE_URL = `${SHARING_URL}/terms-of-service`;
+
+// App Store Guideline 1.2's "published contact information" requirement
+// (see docs/research/15-belize-legal-compliance-audit.md §2.7/§7 and
+// sharing/README.md's own follow-up) — also doubles as the "mechanism to
+// report" an abusive user for the one feature that could conceivably need
+// it (live location sharing has no accounts/friend graph to report
+// *into*, so a direct email is the right-sized equivalent here, same
+// conclusion the Kakao/Naver comparison research landed on). Same
+// placeholder convention as the two documents above — a real address only
+// the developer can supply.
+const SUPPORT_EMAIL = 'INSERT_YOUR_SUPPORT_EMAIL@example.com';
+export const SUPPORT_EMAIL_URL = `mailto:${SUPPORT_EMAIL}`;

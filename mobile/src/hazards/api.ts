@@ -87,3 +87,27 @@ export async function deleteHazard(id: number, deleteToken: string): Promise<voi
   );
   if (!res.ok) throw new Error(`Delete failed (${res.status})`);
 }
+
+// App Store Guideline 1.2's "mechanism to report offensive content" for
+// this feature's always-live, unmoderated UGC (see sharing/README.md's
+// own follow-up for the Tmap/Kakao/Naver comparison this is scaled down
+// from) — anyone can report, no delete_token needed, same as confirming.
+// A fixed reason set, not free text: this is a lightweight flag for a
+// human to review (scripts/review_hazard_reports.py), not a complaint form.
+export type HazardReportReason = 'not_here' | 'spam' | 'duplicate' | 'inappropriate';
+
+export const HAZARD_REPORT_REASON_LABELS: Record<HazardReportReason, string> = {
+  not_here: "Not here / doesn't exist",
+  spam: 'Spam or test post',
+  duplicate: 'Duplicate report',
+  inappropriate: 'Inappropriate note text',
+};
+
+export async function reportHazardIssue(id: number, reason: HazardReportReason): Promise<void> {
+  const res = await fetch(`${SHARING_URL}/hazards/${id}/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error(`Report failed (${res.status})`);
+}

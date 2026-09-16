@@ -18,7 +18,9 @@ import {
   deleteHazard,
   listHazards,
   reportHazard,
+  reportHazardIssue,
   type HazardReport,
+  type HazardReportReason,
   type HazardType,
 } from './api';
 import { addMyHazardReport, getMyHazardReports, removeMyHazardReport, type MyHazardReport } from './myReports';
@@ -45,6 +47,8 @@ export type UseHazards = {
   deleting: boolean;
   confirmSelected: () => Promise<void>;
   deleteSelected: () => Promise<void>;
+  reportingIssue: boolean;
+  reportSelectedIssue: (reason: HazardReportReason) => Promise<void>;
 };
 
 export function useHazards(
@@ -60,6 +64,7 @@ export function useHazards(
   const [selected, setSelected] = useState<HazardReport | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [reportingIssue, setReportingIssue] = useState(false);
   const [myReports, setMyReports] = useState<MyHazardReport[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -172,6 +177,24 @@ export function useHazards(
     }
   };
 
+  // Reporting doesn't need myReports/deleteToken the way deleteSelected
+  // does — anyone can flag any report, not just retract their own (see
+  // src/hazards/api.ts's own comment). Deliberately doesn't close the
+  // card or refresh the list on success: reporting never changes what's
+  // shown (no auto-hide — see main.py's report_hazard_issue), so there's
+  // nothing for the UI to reflect back besides the loading state itself.
+  const reportSelectedIssue = async (reason: HazardReportReason) => {
+    if (!selected) return;
+    setReportingIssue(true);
+    try {
+      await reportHazardIssue(selected.id, reason);
+    } catch (e) {
+      logError('hazards:reportIssue', e, { reason });
+    } finally {
+      setReportingIssue(false);
+    }
+  };
+
   return {
     layerVisible,
     toggleLayer,
@@ -191,5 +214,7 @@ export function useHazards(
     deleting,
     confirmSelected,
     deleteSelected,
+    reportingIssue,
+    reportSelectedIssue,
   };
 }

@@ -1,6 +1,6 @@
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { HAZARD_TYPE_LABELS, type HazardReport } from './api';
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { HAZARD_REPORT_REASON_LABELS, HAZARD_TYPE_LABELS, type HazardReport, type HazardReportReason } from './api';
 import { useTheme } from '../theme/ThemeContext';
 
 // Same bottom-sheet Modal pattern as src/places/PlaceCard.tsx — a marker
@@ -25,9 +25,11 @@ type Props = {
   isMine: boolean;
   confirming: boolean;
   deleting: boolean;
+  reportingIssue: boolean;
   onClose: () => void;
   onConfirm: () => void;
   onDelete: () => void;
+  onReportIssue: (reason: HazardReportReason) => void;
   // Fed to the underlying <Modal> — reports back once its dismiss
   // *animation* has actually finished, which the coordinator needs to
   // know before it's safe to present whatever's next.
@@ -40,12 +42,33 @@ export default function HazardInfoCard({
   isMine,
   confirming,
   deleting,
+  reportingIssue,
   onClose,
   onConfirm,
   onDelete,
+  onReportIssue,
   onDismiss,
 }: Props) {
   const { colors } = useTheme();
+
+  // A plain native action sheet, same pattern as App.tsx's own
+  // openLegalDocs — this is a rarely-tapped safety-net action, not
+  // worth a whole custom picker UI. Confirms success back to the user
+  // (App Store Guideline 1.2 wants a real reporting *mechanism*, and a
+  // report that visibly goes nowhere reads as broken, not just quiet).
+  const confirmReportIssue = () => {
+    const reasons = Object.entries(HAZARD_REPORT_REASON_LABELS) as [HazardReportReason, string][];
+    Alert.alert('Report this hazard report', 'Why are you reporting it?', [
+      ...reasons.map(([reason, label]) => ({
+        text: label,
+        onPress: () => {
+          onReportIssue(reason);
+          Alert.alert('Thanks', "We'll take a look.");
+        },
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
 
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} onDismiss={onDismiss}>
@@ -96,6 +119,15 @@ export default function HazardInfoCard({
                 <Text style={[styles.deleteLabel, { color: colors.danger }]}>{deleting ? 'Removing…' : 'Remove my report'}</Text>
               </Pressable>
             )}
+
+            <Pressable
+              onPress={confirmReportIssue}
+              disabled={reportingIssue}
+              accessibilityRole="button"
+              accessibilityLabel="Report this hazard report"
+              hitSlop={4}>
+              <Text style={[styles.reportLabel, { color: colors.textSecondary }]}>🚩 Report this</Text>
+            </Pressable>
           </View>
         )}
       </View>
@@ -175,5 +207,10 @@ const styles = StyleSheet.create({
     color: '#b3261e',
     fontWeight: '700',
     fontSize: 14,
+  },
+  reportLabel: {
+    marginTop: 12,
+    fontSize: 12,
+    textAlign: 'center',
   },
 });
