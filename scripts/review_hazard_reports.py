@@ -8,12 +8,16 @@ go live immediately with no pre-moderation, since safety-relevant info needs
 to be visible right away — POST /hazards/{id}/report just flags one for a
 human to look at afterward, it never auto-hides or auto-deletes anything.
 
-Deliberately a local admin script, not an HTTP endpoint on sharing/'s
-otherwise-public API — same reasoning as review_poi_corrections.py's own
-header comment (deleting someone's hazard report is a real, semi-irreversible
-mutation, and this service is wide-open-CORS/no-auth by design). Run via the
-sharing/ container, which already has psycopg2 and network access to postgis
-(see sharing/docker-compose.yml's scripts/ volume mount):
+Originally a local-only admin script — same reasoning as
+review_poi_corrections.py's own header comment (deleting someone's hazard
+report is a real, semi-irreversible mutation, and sharing/'s API is
+wide-open-CORS/no-auth by design). As of 2026-09-16 there's also a
+token-gated web equivalent (GET /admin on the sharing/ service, see
+main.py's require_admin/admin_dismiss_hazard_report/
+admin_remove_hazard_report) — this script still works unmodified, useful
+over SSH or for scripting. Run via the sharing/ container, which already
+has psycopg2 and network access to postgis (see sharing/docker-
+compose.yml's scripts/ volume mount):
 
     docker exec -it belize-sharing python3 /scripts/review_hazard_reports.py list
     docker exec -it belize-sharing python3 /scripts/review_hazard_reports.py show 3

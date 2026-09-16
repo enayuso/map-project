@@ -606,11 +606,11 @@ def submit_correction(request: Request, body: SubmitCorrectionBody):
 @limiter.limit(POLL_LIMIT)
 def list_corrections(request: Request, status: Literal["pending", "approved", "rejected"] = "pending"):
     """Read-only queue listing — low-risk to expose without auth (nothing
-    here can be mutated through this endpoint). Approving/rejecting is
-    deliberately NOT an HTTP endpoint at all — see scripts/
-    review_poi_corrections.py's own header comment for why that's a local
-    admin script instead of another route on this wide-open-CORS,
-    no-auth service."""
+    here can be mutated through this endpoint). Approving/rejecting IS now
+    also reachable over HTTP (see the /admin/poi-corrections/* routes
+    below) — unlike this listing route, those require the require_admin
+    dependency, since a mutation was never safe to leave open on this
+    wide-open-CORS, no-auth-by-default service the way a plain read is."""
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -636,6 +636,196 @@ def list_corrections(request: Request, status: Literal["pending", "approved", "r
                 for r in rows
             ]
         }
+    finally:
+        conn.close()
+
+
+# --- Local moderation page (added 2026-09-16) ---------------------------
+#
+# scripts/review_poi_corrections.py and scripts/review_hazard_reports.py
+# were deliberately CLI-only when those two flows were first built,
+# specifically because this service has no auth system and wide-open CORS
+# (see this file's own top-of-file comment) — fine for a mobile client
+# that only ever submits/reads, not fine for an unauthenticated "apply
+# this edit"/"delete this row" action reachable from any browser. That
+# reasoning still holds; what's different below is that these routes
+# aren't unauthenticated — require_admin gates every mutation behind one
+# shared secret, so exposing them is no more risky than /profile already
+# being reachable with a valid session token. Both CLI scripts still work
+# unmodified: this is an additional way to do the same moderation (a
+# three-button web page instead of `docker exec` + remembering flags),
+# not a replacement.
+TYPESENSE_URL = os.environ.get("TYPESENSE_URL", "http://typesense:8108")
+TYPESENSE_API_KEY = "typesense_dev_local_only"
+
+# Same set scripts/review_poi_corrections.py auto-applies to Typesense on
+# approve. Duplicated rather than imported from one shared module — the
+# two run in different processes (this app vs. a stdlib-only CLI script)
+# and duplicating one small literal set is cheaper than wiring a shared
+# import path between app/ and scripts/ for it.
+AUTO_APPLIED_FIELDS = {"name", "category"}
+
+# Deliberately NOT the profile/bcrypt system used elsewhere in this file —
+# there's no such thing as an "admin profile" in this schema, and building
+# a whole account for a single operator (you) would be more auth system
+# than a one-person moderation tool needs. A single long random token,
+# compared in constant time, is the smallest thing that actually gates a
+# mutation. Empty by default, matching this service's own "fail closed,
+# not open" posture: an unset ADMIN_TOKEN means these routes simply don't
+# work yet (secrets.compare_digest never matches against ""), not that
+# they're wide open the way the rest of this service's routes are.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
+
+def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
+    if not ADMIN_TOKEN or not x_admin_token or not secrets.compare_digest(x_admin_token, ADMIN_TOKEN):
+        raise HTTPException(401, "Missing or invalid admin token")
+
+
+@app.get("/admin")
+@limiter.limit(STATIC_LIMIT)
+def get_admin_page(request: Request):
+    """The page itself is static HTML/JS with no secrets baked in — the
+    operator enters the admin token into the page at runtime, and it's
+    sent as a header on every mutating call below. Unauthenticated for the
+    same reason /privacy-policy is: serving inert markup costs nothing,
+    the gate belongs on the actions, not the page."""
+    return read_html_data("admin.html")
+
+
+@app.get("/admin/hazard-reports")
+@limiter.limit(POLL_LIMIT)
+def admin_list_hazard_reports(request: Request, _admin: None = Depends(require_admin)):
+    """Same query as scripts/review_hazard_reports.py's own cmd_list: every
+    non-expired report with report_count > 0, worst-first."""
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, type, lat, lon, note, report_count, last_report_reason, reported_at, expires_at "
+                "FROM hazard_reports WHERE report_count > 0 AND expires_at > now() "
+                "ORDER BY report_count DESC, reported_at ASC"
+            )
+            rows = cur.fetchall()
+        return {
+            "reports": [
+                {
+                    "id": r["id"],
+                    "type": r["type"],
+                    "lat": r["lat"],
+                    "lon": r["lon"],
+                    "note": r["note"],
+                    "reportCount": r["report_count"],
+                    "lastReportReason": r["last_report_reason"],
+                    "reportedAt": r["reported_at"].isoformat(),
+                    "expiresAt": r["expires_at"].isoformat(),
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/admin/hazard-reports/{hazard_id}/dismiss")
+@limiter.limit(MUTATE_LIMIT)
+def admin_dismiss_hazard_report(request: Request, hazard_id: int, _admin: None = Depends(require_admin)):
+    """Same as scripts/review_hazard_reports.py's cmd_dismiss — clears the
+    flag(s) on a report you looked at and decided was fine; the report
+    itself stays live, untouched otherwise."""
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE hazard_reports SET report_count = 0, last_report_reason = NULL WHERE id = %s",
+                (hazard_id,),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(404, "Report not found")
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/admin/hazard-reports/{hazard_id}")
+@limiter.limit(MUTATE_LIMIT)
+def admin_remove_hazard_report(request: Request, hazard_id: int, _admin: None = Depends(require_admin)):
+    """Same as scripts/review_hazard_reports.py's cmd_remove — hard-delete,
+    the admin equivalent of the reporter's own retract action."""
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM hazard_reports WHERE id = %s", (hazard_id,))
+            if cur.rowcount == 0:
+                raise HTTPException(404, "Report not found")
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.post("/admin/poi-corrections/{correction_id}/approve")
+@limiter.limit(MUTATE_LIMIT)
+def admin_approve_correction(request: Request, correction_id: int, _admin: None = Depends(require_admin)):
+    """Same behavior as scripts/review_poi_corrections.py's cmd_approve:
+    'name'/'category' corrections patch Typesense automatically and are
+    marked approved; every other field is marked reviewed WITHOUT
+    auto-deleting or auto-editing anything — removing a POI outright is a
+    bigger, less reversible action than this endpoint takes lightly, so it
+    comes back as a manualAction string for the operator to run themselves
+    if they read it and agree."""
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM poi_corrections WHERE id = %s", (correction_id,))
+            row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Correction not found")
+        if row["status"] != "pending":
+            raise HTTPException(409, f"Correction is already {row['status']}")
+
+        manual_action = None
+        if row["field"] in AUTO_APPLIED_FIELDS:
+            try:
+                resp = requests.patch(
+                    f"{TYPESENSE_URL}/collections/pois/documents/{row['poi_id']}",
+                    json={row["field"]: row["suggested_value"]},
+                    headers={"X-TYPESENSE-API-KEY": TYPESENSE_API_KEY},
+                    timeout=5,
+                )
+                resp.raise_for_status()
+            except requests.RequestException as e:
+                raise HTTPException(502, f"Typesense patch failed — not marking approved: {e}")
+        else:
+            manual_action = (
+                f"'{row['field']}' reports don't auto-apply — if you agree the POI should go, delete it "
+                f"directly: curl -X DELETE {TYPESENSE_URL}/collections/pois/documents/{row['poi_id']} "
+                f"-H 'X-TYPESENSE-API-KEY: {TYPESENSE_API_KEY}'"
+            )
+
+        with conn, conn.cursor() as cur2:
+            cur2.execute(
+                "UPDATE poi_corrections SET status='approved', reviewed_at=now() WHERE id=%s",
+                (correction_id,),
+            )
+        return {"ok": True, "manualAction": manual_action}
+    finally:
+        conn.close()
+
+
+@app.post("/admin/poi-corrections/{correction_id}/reject")
+@limiter.limit(MUTATE_LIMIT)
+def admin_reject_correction(request: Request, correction_id: int, _admin: None = Depends(require_admin)):
+    """Same as scripts/review_poi_corrections.py's cmd_reject."""
+    conn = get_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE poi_corrections SET status='rejected', reviewed_at=now() WHERE id=%s AND status='pending'",
+                (correction_id,),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(404, "No pending correction with that id")
+        return {"ok": True}
     finally:
         conn.close()
 

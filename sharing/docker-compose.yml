@@ -20,6 +20,12 @@ services:
       DB_NAME: belize
       DB_USER: belize
       DB_PASSWORD: ${DB_PASSWORD:-devpass123}
+      # Gates the /admin/* moderation routes (main.py's require_admin) —
+      # unset by default, meaning those routes stay locked out until you
+      # set a real value in sharing/.env. No default here on purpose,
+      # unlike DB_PASSWORD above: failing closed is the right default for
+      # something that guards a delete, not a shared dev-only credential.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
       # Bound to loopback only — see backend/docker-compose.yml's own
       # comment on this; same reasoning applies to every service's ports.

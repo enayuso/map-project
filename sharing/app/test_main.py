@@ -25,6 +25,7 @@ import psycopg2
 import pytest
 from fastapi.testclient import TestClient
 
+import main
 from main import app, get_conn
 
 client = TestClient(app)
@@ -209,11 +210,10 @@ class TestPoiCorrections:
         listing = client.get("/poi-corrections", params={"status": "pending"})
         assert listing.status_code == 200
         assert any(c["id"] == correction_id for c in listing.json()["corrections"])
-        # No DELETE endpoint exists for corrections (deliberately — approve/
-        # reject only happens via scripts/review_poi_corrections.py, never
-        # HTTP, see main.py's own comment on list_corrections). A `pending`
-        # test row left behind is harmless noise for that script to skip
-        # past, not a correctness problem, so there's nothing to clean up.
+        # Approve/reject now exist as admin-token-gated HTTP endpoints too
+        # (see TestAdminModeration below) — this pending test row is left
+        # for one of those tests to clean up, or is harmless noise for a
+        # human moderator to skip past otherwise.
 
     def test_rejects_invalid_field(self):
         resp = client.post("/poi-corrections", json={"poi_id": "x", "poi_name": "y", "field": "bogus"})
@@ -221,6 +221,131 @@ class TestPoiCorrections:
 
     def test_rejects_invalid_status_filter(self):
         assert client.get("/poi-corrections", params={"status": "bogus"}).status_code == 422
+
+
+class TestAdminModeration:
+    """Covers main.py's require_admin gate plus the /admin/* moderation
+    routes it protects — see main.py's own "Local moderation page" comment
+    for why these exist alongside (not instead of) the CLI scripts."""
+
+    @pytest.fixture(autouse=True)
+    def admin_token(self, monkeypatch):
+        monkeypatch.setattr(main, "ADMIN_TOKEN", "pytest-admin-token")
+        return "pytest-admin-token"
+
+    def _headers(self, token="pytest-admin-token"):
+        return {"X-Admin-Token": token}
+
+    def test_rejects_missing_or_wrong_token(self):
+        assert client.get("/admin/hazard-reports").status_code == 401
+        assert client.get("/admin/hazard-reports", headers=self._headers("wrong")).status_code == 401
+
+    def test_locked_out_entirely_when_admin_token_unset(self, monkeypatch):
+        monkeypatch.setattr(main, "ADMIN_TOKEN", "")
+        resp = client.get("/admin/hazard-reports", headers=self._headers())
+        assert resp.status_code == 401
+
+    def test_admin_page_serves_html_unauthenticated(self):
+        # The page shell itself carries no secrets — the gate is on the
+        # actions it calls, not on loading the markup (same reasoning as
+        # /privacy-policy's own test above).
+        resp = client.get("/admin")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "<html" in resp.text.lower()
+
+    def test_hazard_dismiss_and_remove(self):
+        resp = client.post("/hazards", json={"type": "flooding", **BELIZE_CITY})
+        hazard_id = resp.json()["id"]
+        client.post(f"/hazards/{hazard_id}/report", json={"reason": "spam"})
+
+        listing = client.get("/admin/hazard-reports", headers=self._headers())
+        assert listing.status_code == 200
+        assert any(r["id"] == hazard_id and r["reportCount"] == 1 for r in listing.json()["reports"])
+
+        dismissed = client.post(f"/admin/hazard-reports/{hazard_id}/dismiss", headers=self._headers())
+        assert dismissed.status_code == 200
+        listing_after_dismiss = client.get("/admin/hazard-reports", headers=self._headers())
+        assert not any(r["id"] == hazard_id for r in listing_after_dismiss.json()["reports"])
+
+        removed = client.delete(f"/admin/hazard-reports/{hazard_id}", headers=self._headers())
+        assert removed.status_code == 200
+        assert client.delete(f"/admin/hazard-reports/{hazard_id}", headers=self._headers()).status_code == 404
+
+    def test_hazard_dismiss_unknown_id_404(self):
+        assert client.post("/admin/hazard-reports/999999999/dismiss", headers=self._headers()).status_code == 404
+
+    def test_correction_approve_auto_applied_field_requires_typesense(self):
+        # 'name'/'category' corrections try to PATCH Typesense — without a
+        # real POI id in the test index this fails at that step, which is
+        # itself the behavior worth asserting: never mark approved if the
+        # Typesense patch didn't actually succeed.
+        resp = client.post(
+            "/poi-corrections",
+            json={
+                "poi_id": "pytest-nonexistent-poi",
+                "poi_name": "Pytest Place",
+                "field": "name",
+                "suggested_value": "New Name",
+            },
+        )
+        correction_id = resp.json()["id"]
+        approved = client.post(f"/admin/poi-corrections/{correction_id}/approve", headers=self._headers())
+        assert approved.status_code == 502
+
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status FROM poi_corrections WHERE id = %s", (correction_id,))
+                assert cur.fetchone()[0] == "pending"
+                cur.execute("DELETE FROM poi_corrections WHERE id = %s", (correction_id,))
+                conn.commit()
+        finally:
+            conn.close()
+
+    def test_correction_approve_manual_field_marks_reviewed_without_mutating_typesense(self):
+        resp = client.post(
+            "/poi-corrections",
+            json={"poi_id": "pytest-poi", "poi_name": "Pytest Place", "field": "closed", "note": "pytest"},
+        )
+        correction_id = resp.json()["id"]
+
+        approved = client.post(f"/admin/poi-corrections/{correction_id}/approve", headers=self._headers())
+        assert approved.status_code == 200
+        assert approved.json()["manualAction"] is not None
+
+        listing = client.get("/poi-corrections", params={"status": "approved"})
+        assert any(c["id"] == correction_id for c in listing.json()["corrections"])
+
+        conn = get_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM poi_corrections WHERE id = %s", (correction_id,))
+        finally:
+            conn.close()
+
+    def test_correction_reject(self):
+        resp = client.post(
+            "/poi-corrections",
+            json={"poi_id": "pytest-poi", "poi_name": "Pytest Place", "field": "other", "note": "pytest"},
+        )
+        correction_id = resp.json()["id"]
+
+        rejected = client.post(f"/admin/poi-corrections/{correction_id}/reject", headers=self._headers())
+        assert rejected.status_code == 200
+
+        again = client.post(f"/admin/poi-corrections/{correction_id}/reject", headers=self._headers())
+        assert again.status_code == 404
+
+        conn = get_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM poi_corrections WHERE id = %s", (correction_id,))
+        finally:
+            conn.close()
+
+    def test_correction_approve_unknown_id_404(self):
+        assert client.post("/admin/poi-corrections/999999999/approve", headers=self._headers()).status_code == 404
 
 
 class TestStaticContent:

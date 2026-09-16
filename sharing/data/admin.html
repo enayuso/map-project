@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moderation — BelizeMap</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 20px 64px;
+    color: #2a2620;
+    background: #fdfbf6;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  h2 { font-size: 1.05rem; margin-top: 2.2em; padding-bottom: 4px; border-bottom: 1px solid #e4ddcc; display: flex; justify-content: space-between; align-items: center; }
+  .muted { color: #7a7466; font-size: 0.9rem; }
+  .lock-screen { max-width: 360px; margin: 20vh auto 0; text-align: center; }
+  input[type="password"], input[type="text"] {
+    font-size: 1rem; padding: 8px 10px; border: 1px solid #cfc6b0; border-radius: 6px; width: 100%; box-sizing: border-box;
+  }
+  button {
+    font-size: 0.9rem; padding: 6px 12px; border-radius: 6px; border: 1px solid #cfc6b0; background: #fff;
+    cursor: pointer; color: inherit;
+  }
+  button:hover { opacity: 0.85; }
+  button.danger { border-color: #c0392b; color: #c0392b; }
+  button.primary { border-color: #2a7a63; color: #2a7a63; }
+  .card { border: 1px solid #e4ddcc; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: #fffdf8; }
+  .card-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .card-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .pill { display: inline-block; background: #efe9d8; border-radius: 999px; padding: 1px 9px; font-size: 0.78rem; margin-right: 6px; }
+  .status-msg { font-size: 0.9rem; margin: 8px 0; min-height: 1.2em; }
+  .status-msg.error { color: #c0392b; }
+  .status-msg.ok { color: #2a7a63; }
+  .empty { color: #7a7466; font-style: italic; font-size: 0.9rem; }
+  #app { display: none; }
+  .toolbar { display: flex; gap: 8px; align-items: center; }
+  /* Placed last on purpose — with equal specificity, source order decides
+     the tie, so this has to come after every base rule it overrides
+     (.card, input/button, etc.) or those base rules win instead. */
+  @media (prefers-color-scheme: dark) {
+    body { color: #e9e4d8; background: #17140f; }
+    a { color: #8fd0c0; }
+    h2 { border-bottom-color: #3a352a; }
+    input[type="password"], input[type="text"] { background: #221e17; color: #e9e4d8; border-color: #4a4436; }
+    button { background: #221e17; color: #e9e4d8; border-color: #4a4436; }
+    button.danger { color: #e08a7d; border-color: #8a4a3d; }
+    button.primary { color: #7fcbb0; border-color: #3d6a5a; }
+    .card { background: #1e1a13; border-color: #3a352a; }
+    .muted { color: #b3ab98; }
+    .pill { background: #3a352a; }
+  }
+</style>
+</head>
+<body>
+
+<div id="lock" class="lock-screen">
+  <h1>Moderation</h1>
+  <p class="muted">Enter the admin token to continue.</p>
+  <form id="lock-form">
+    <input type="password" id="token-input" placeholder="Admin token" autocomplete="off">
+    <div style="margin-top: 10px;"><button type="submit" class="primary">Unlock</button></div>
+  </form>
+  <p class="status-msg error" id="lock-error"></p>
+</div>
+
+<div id="app">
+  <div class="card-row">
+    <h1 style="border:none; margin:0;">Moderation</h1>
+    <button id="lock-btn">Lock</button>
+  </div>
+  <p class="muted">Flagged hazard reports and pending place corrections — the same queues as
+  <code>scripts/review_hazard_reports.py</code> / <code>scripts/review_poi_corrections.py</code>, as a web page instead of a CLI.</p>
+
+  <h2>Flagged hazard reports <button id="refresh-hazards">Refresh</button></h2>
+  <p class="status-msg" id="hazards-status"></p>
+  <div id="hazards-list"></div>
+
+  <h2>
+    POI corrections
+    <span class="toolbar">
+      <select id="correction-status">
+        <option value="pending" selected>Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+      </select>
+      <button id="refresh-corrections">Refresh</button>
+    </span>
+  </h2>
+  <p class="status-msg" id="corrections-status"></p>
+  <div class="card" id="manual-action-banner" hidden>
+    <div class="card-row">
+      <div><strong>Manual step needed</strong><div id="manual-action-text" style="margin-top:4px;"></div></div>
+      <div class="card-actions"><button id="manual-action-dismiss">Dismiss</button></div>
+    </div>
+  </div>
+  <div id="corrections-list"></div>
+</div>
+
+<script>
+(function () {
+  var lockEl = document.getElementById('lock');
+  var appEl = document.getElementById('app');
+  var tokenKey = 'belizeAdminToken';
+
+  function getToken() { return sessionStorage.getItem(tokenKey) || ''; }
+  function setToken(t) { sessionStorage.setItem(tokenKey, t); }
+  function clearToken() { sessionStorage.removeItem(tokenKey); }
+
+  function showApp() {
+    lockEl.style.display = 'none';
+    appEl.style.display = 'block';
+    loadHazards();
+    loadCorrections();
+  }
+  function showLock(message) {
+    appEl.style.display = 'none';
+    lockEl.style.display = 'block';
+    document.getElementById('lock-error').textContent = message || '';
+  }
+
+  function authedFetch(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({}, opts.headers, { 'X-Admin-Token': getToken() });
+    return fetch(path, opts).then(function (res) {
+      if (res.status === 401) {
+        clearToken();
+        showLock('Invalid or expired token — try again.');
+        throw new Error('unauthorized');
+      }
+      return res;
+    });
+  }
+
+  function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function setStatus(id, text, kind) {
+    var el = document.getElementById(id);
+    el.textContent = text || '';
+    el.className = 'status-msg' + (kind ? ' ' + kind : '');
+  }
+
+  // Two-click inline confirm instead of window.confirm() — some browser
+  // contexts silently suppress native confirm()/alert() dialogs (a real,
+  // observed failure mode, not a hypothetical one: the reference system's own admin
+  // console hit exactly this with window.confirm() and switched to a
+  // custom modal for the same reason). First click arms the button and
+  // relabels it; a second click within 3s actually runs the action; no
+  // second click within that window quietly reverts it.
+  function armConfirm(btn, confirmLabel, onConfirm) {
+    if (btn.dataset.armed === '1') {
+      clearTimeout(btn._revertTimer);
+      onConfirm();
+      return;
+    }
+    btn.dataset.armed = '1';
+    var original = btn.textContent;
+    btn.textContent = confirmLabel;
+    btn._revertTimer = setTimeout(function () {
+      btn.dataset.armed = '';
+      btn.textContent = original;
+    }, 3000);
+  }
+
+  function showManualAction(text) {
+    document.getElementById('manual-action-text').textContent = text;
+    document.getElementById('manual-action-banner').hidden = false;
+  }
+  document.getElementById('manual-action-dismiss').addEventListener('click', function () {
+    document.getElementById('manual-action-banner').hidden = true;
+  });
+
+  // --- Hazard reports ---------------------------------------------------
+
+  function loadHazards() {
+    setStatus('hazards-status', 'Loading…');
+    authedFetch('/admin/hazard-reports')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        setStatus('hazards-status', '');
+        renderHazards(data.reports || []);
+      })
+      .catch(function (err) {
+        if (err.message !== 'unauthorized') setStatus('hazards-status', 'Failed to load: ' + err.message, 'error');
+      });
+  }
+
+  function renderHazards(reports) {
+    var el = document.getElementById('hazards-list');
+    if (!reports.length) {
+      el.innerHTML = '<p class="empty">No flagged (and still-live) hazard reports.</p>';
+      return;
+    }
+    el.innerHTML = reports.map(function (r) {
+      return '<div class="card" data-id="' + r.id + '">' +
+        '<div class="card-row">' +
+          '<div>' +
+            '<span class="pill">' + escapeHtml(r.type) + '</span>' +
+            '<span class="pill">' + r.reportCount + ' report' + (r.reportCount === 1 ? '' : 's') + '</span>' +
+            (r.lastReportReason ? '<span class="pill">last: ' + escapeHtml(r.lastReportReason) + '</span>' : '') +
+            '<div class="muted">#' + r.id + ' · reported ' + escapeHtml(r.reportedAt) + ' · expires ' + escapeHtml(r.expiresAt) + '</div>' +
+            (r.note ? '<div>note: ' + escapeHtml(r.note) + '</div>' : '') +
+          '</div>' +
+          '<div class="card-actions">' +
+            '<button class="hazard-dismiss">Dismiss flag</button>' +
+            '<button class="hazard-remove danger">Remove</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    el.querySelectorAll('.hazard-dismiss').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.closest('.card').dataset.id;
+        authedFetch('/admin/hazard-reports/' + id + '/dismiss', { method: 'POST' })
+          .then(function (r) { if (!r.ok) throw new Error('request failed'); return loadHazards(); })
+          .catch(function (err) { if (err.message !== 'unauthorized') setStatus('hazards-status', err.message, 'error'); });
+      });
+    });
+    el.querySelectorAll('.hazard-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        armConfirm(btn, 'Click again to remove', function () {
+          var id = btn.closest('.card').dataset.id;
+          authedFetch('/admin/hazard-reports/' + id, { method: 'DELETE' })
+            .then(function (r) { if (!r.ok) throw new Error('request failed'); return loadHazards(); })
+            .catch(function (err) { if (err.message !== 'unauthorized') setStatus('hazards-status', err.message, 'error'); });
+        });
+      });
+    });
+  }
+
+  // --- POI corrections ----------------------------------------------------
+
+  function loadCorrections() {
+    var status = document.getElementById('correction-status').value;
+    setStatus('corrections-status', 'Loading…');
+    fetch('/poi-corrections?status=' + encodeURIComponent(status))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        setStatus('corrections-status', '');
+        renderCorrections(data.corrections || [], status);
+      })
+      .catch(function (err) { setStatus('corrections-status', 'Failed to load: ' + err.message, 'error'); });
+  }
+
+  function renderCorrections(corrections, status) {
+    var el = document.getElementById('corrections-list');
+    if (!corrections.length) {
+      el.innerHTML = '<p class="empty">No ' + status + ' corrections.</p>';
+      return;
+    }
+    var actionsHtml = status === 'pending'
+      ? '<div class="card-actions"><button class="correction-approve primary">Approve</button><button class="correction-reject danger">Reject</button></div>'
+      : '';
+    el.innerHTML = corrections.map(function (c) {
+      return '<div class="card" data-id="' + c.id + '">' +
+        '<div class="card-row">' +
+          '<div>' +
+            '<span class="pill">' + escapeHtml(c.field) + '</span>' +
+            '<strong>' + escapeHtml(c.poiName) + '</strong>' +
+            '<div class="muted">#' + c.id + ' · POI ' + escapeHtml(c.poiId) + ' · submitted ' + escapeHtml(c.submittedAt) + '</div>' +
+            (c.currentValue || c.suggestedValue
+              ? '<div>' + escapeHtml(c.currentValue) + ' &rarr; ' + escapeHtml(c.suggestedValue) + '</div>' : '') +
+            (c.note ? '<div>note: ' + escapeHtml(c.note) + '</div>' : '') +
+          '</div>' +
+          actionsHtml +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    el.querySelectorAll('.correction-approve').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.closest('.card').dataset.id;
+        authedFetch('/admin/poi-corrections/' + id + '/approve', { method: 'POST' })
+          .then(function (r) { return r.json().then(function (body) { return { ok: r.ok, body: body }; }); })
+          .then(function (res) {
+            if (!res.ok) throw new Error(res.body.detail || 'request failed');
+            if (res.body.manualAction) showManualAction(res.body.manualAction);
+            loadCorrections();
+          })
+          .catch(function (err) { if (err.message !== 'unauthorized') setStatus('corrections-status', err.message, 'error'); });
+      });
+    });
+    el.querySelectorAll('.correction-reject').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        armConfirm(btn, 'Click again to reject', function () {
+          var id = btn.closest('.card').dataset.id;
+          authedFetch('/admin/poi-corrections/' + id + '/reject', { method: 'POST' })
+            .then(function (r) { if (!r.ok) throw new Error('request failed'); return loadCorrections(); })
+            .catch(function (err) { if (err.message !== 'unauthorized') setStatus('corrections-status', err.message, 'error'); });
+        });
+      });
+    });
+  }
+
+  document.getElementById('lock-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var val = document.getElementById('token-input').value.trim();
+    if (!val) return;
+    setToken(val);
+    showApp();
+  });
+  document.getElementById('lock-btn').addEventListener('click', function () {
+    clearToken();
+    showLock();
+  });
+  document.getElementById('refresh-hazards').addEventListener('click', loadHazards);
+  document.getElementById('refresh-corrections').addEventListener('click', loadCorrections);
+  document.getElementById('correction-status').addEventListener('change', loadCorrections);
+
+  if (getToken()) { showApp(); } else { showLock(); }
+})();
+</script>
+
+</body>
+</html>

@@ -6,13 +6,16 @@ moderation queue, not a live write, mirroring Kakao/Naver's own model:
 anyone can submit a correction (mobile/src/poi-corrections/), but nothing
 touches the real `pois` Typesense index until a human approves it here.
 
-Deliberately a local admin script, not an HTTP endpoint on sharing/'s
-otherwise-public API: approving a correction MUTATES public POI data, and
-that service is wide-open-CORS/no-auth by design (same as everything else
-in it, see its own header comment) — fine for a mobile client only ever
-submitting/reading, not fine for an unauthenticated "apply this edit"
-action. Run via the sharing/ container, which already has psycopg2 and
-network access to both postgis and typesense (see sharing/docker-
+Originally a local-only admin script: approving a correction MUTATES
+public POI data, and sharing/'s API is wide-open-CORS/no-auth by design
+(same as everything else in it, see its own header comment) — fine for a
+mobile client only ever submitting/reading, not fine for an
+unauthenticated "apply this edit" action. As of 2026-09-16 there's also a
+token-gated web equivalent (GET /admin on the sharing/ service, see
+main.py's require_admin/admin_approve_correction/admin_reject_correction)
+— this script still works unmodified, useful over SSH or for scripting.
+Run via the sharing/ container, which already has psycopg2 and network
+access to both postgis and typesense (see sharing/docker-
 compose.yml's scripts/ volume mount):
 
     docker exec -it belize-sharing python3 /scripts/review_poi_corrections.py list

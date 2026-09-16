@@ -141,13 +141,14 @@ Mobile: `ProfilePanel`'s signup form gained a real checkbox ("I agree to the **T
 | `GET /privacy-policy` | Returns the Privacy Policy as HTML — read straight from `data/privacy_policy.html`. Unauthenticated, so an App Store reviewer (or anyone) can open it with no account. |
 | `GET /terms-of-service` | Returns the Terms of Service as HTML — read straight from `data/terms_of_service.html`. Unauthenticated, same reasoning as above. |
 | `GET /health` | `{ok: true}` |
+| `GET /admin` | The moderation page (HTML/JS, no secrets baked in) — see "Moderation page" below. |
+| `GET /admin/hazard-reports` (admin token) | Every flagged, non-expired hazard report, worst-first. |
+| `POST /admin/hazard-reports/{id}/dismiss` (admin token) | Clears the flag(s) on a report; it stays live. |
+| `DELETE /admin/hazard-reports/{id}` (admin token) | Hard-deletes a hazard report. |
+| `POST /admin/poi-corrections/{id}/approve` (admin token) | Approves a correction — auto-patches Typesense for `name`/`category`, otherwise marks reviewed and returns a `manualAction` string. |
+| `POST /admin/poi-corrections/{id}/reject` (admin token) | Rejects a pending correction. |
 
-Approving/rejecting a POI correction is **not** an HTTP endpoint — see `scripts/review_poi_corrections.py`, run locally against this same container:
-```bash
-docker exec -it belize-sharing python3 /scripts/review_poi_corrections.py list
-docker exec -it belize-sharing python3 /scripts/review_poi_corrections.py approve <id>
-docker exec -it belize-sharing python3 /scripts/review_poi_corrections.py reject <id> "reason"
-```
+Approving/rejecting a POI correction, and dismissing/removing a flagged hazard report, can still be done via `scripts/review_poi_corrections.py`/`scripts/review_hazard_reports.py` (unchanged — see their own header comments) — the `/admin/*` routes above are an additional way to do the same moderation, gated behind a shared-secret token instead of being open on this otherwise no-auth service. See "Moderation page" below.
 
 ## Hardening (2026-09-11)
 
@@ -187,4 +188,16 @@ Run them:
 docker exec belize-sharing pip install -r requirements-dev.txt   # once per container lifecycle
 docker exec belize-sharing pytest -v
 ```
+
+## Moderation page (2026-09-16)
+
+`scripts/review_poi_corrections.py` and `scripts/review_hazard_reports.py` were CLI-only from the start, deliberately — see their own header comments. Researched how a much larger internal reference product (an unrelated company's AI chat platform, used purely as an architecture comparison, not affiliated with this project) builds its own admin console before building this: separate small surface, auth enforced server-side rather than trusted from the UI, and a config/content store the running service reads live rather than one baked into a deploy. The right-sized version of that here isn't a new app — it's a static page this same service already serves, gated by one new dependency.
+
+**`ADMIN_TOKEN`** (`sharing/.env`, see `.env.example`) gates every mutating `/admin/*` route via `require_admin` — a single long random secret compared in constant time (`secrets.compare_digest`), not the profile/bcrypt system used elsewhere in this file (there's no "admin profile" concept in this schema, and building one for a single operator would be more auth system than a one-person tool needs). Unset by default, so these routes fail closed rather than open — consistent with this service's own "wide-open CORS/no auth, called out explicitly" posture for everything else: a mutation was never going to be safe to leave open the way a plain read already is.
+
+`GET /admin` serves `data/admin.html` — plain HTML/JS, no build step, no secrets baked in (the token is entered into the page at runtime and sent as an `X-Admin-Token` header on every admin call; stored in `sessionStorage`, so it clears when the tab closes). It lists the same two queues the CLI scripts do — flagged hazard reports and pending POI corrections — with Approve/Reject/Dismiss/Remove buttons calling the new endpoints. The listing itself (`GET /poi-corrections`) stays the existing public, unauthenticated route (nothing there can be mutated); only the actions that change data require the token. Both CLI scripts still work completely unmodified — this is an additional way to do the same moderation, not a replacement.
+
+**A real bug this surfaced, not a hypothetical one**: the first version used `window.confirm()`/`window.alert()` for the destructive actions (reject, remove) and the Typesense-manual-action notice. Testing it live in this session's own Browser tool, its dialog policy silently suppresses native `confirm()`/`alert()` — `confirm()` just returns `false` with a console warning, no dialog ever shown — which would have made Reject/Remove appear to do nothing, and the manual-Typesense-delete instructions never appear at all. This is the exact failure mode the reference-system research (the same comparison referenced above) had already turned up independently: their admin console's own delete-confirmation modal has a comment noting `window.confirm()` was found to no-op under some browser security policies, so they built a custom modal instead. Fixed here the same way: a two-click inline confirm (`armConfirm` in `admin.html` — first click relabels the button and arms it for 3 seconds, a second click within that window actually runs the action) replaces `confirm()`, and a dismissible inline banner replaces `alert()` for the manual-Typesense-delete message.
+
+**Verified**: rebuilt/restarted the container, ran the full suite (58 passed, up from 49 — 9 new tests covering `require_admin`'s token check, the fail-closed-when-unset case, all four new mutation routes, and the auto-applied-vs-manual approve branches). Then tested live: set a real `ADMIN_TOKEN` in `sharing/.env`, confirmed `/admin/hazard-reports` 401s with no/wrong token; created and flagged a real hazard report via curl, loaded `/admin` in the Browser tool, unlocked with the token, confirmed the flagged report appeared, dismissed it (flag cleared, report stayed live), created another and removed it outright (gone from `GET /hazards` after). Approved a real pending `closed`-field correction through the page — confirmed it returned the manual Typesense-delete instructions in the new inline banner (not `alert()`) and the row moved to the `approved` filter; rejected another through the two-click inline confirm (verified via direct DOM event dispatch, since this session's own browser automation's coordinate/ref clicking couldn't reliably land a second click on a button that visually widens between clicks — a testing-tool limitation, not a page bug, confirmed by triggering the same click handler directly and watching the request/response/re-render all happen correctly). Also caught and fixed a real CSS bug while doing this: the dark-mode `@media` block was written before the base light-theme rules it was meant to override, so — same specificity, later source wins — the base rules won and cards rendered light-on-dark; moved dark-mode overrides after the base rules they override, confirmed correct in the Browser tool afterward. Cleaned up 25 leftover `pytest-poi` pending-correction rows (accumulated across many earlier test-suite runs across this whole project, predating this change) through the page itself and a direct SQL pass — none were real data.
 `test_main.py` and `requirements-dev.txt` are mounted read-only by `docker-compose.yml` (same pattern as `scripts/`'s own mount) — editing a test needs no image rebuild.
