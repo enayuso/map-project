@@ -260,6 +260,39 @@ Ranked by a mix of urgency (App Store submission blockers first) and cost-to-fix
 9. **Optional, low-cost hedge**: consider rendering the Belize-Guatemala border as a dashed line (matching Google Maps) rather than OSM's default solid line, given the live diplomatic tension (§4.2) — no legal requirement either way, purely a judgment call.
 10. **No action needed right now** on: GDPR/CCPA compliance program (§5), Belizean business registration (§6), a Data Protection Officer or Commissioner registration (§1.4/§1.11 — likely exempt as a small business anyway), or Belizean mapping/surveying permits (§4.1) — all confirmed out of scope at the app's current size and design, with clear triggers noted for each in case that changes.
 
+## 8. App Store Connect submission checklist — exact answers, for when the paid Developer Program membership exists
+
+Added 2026-09-16, once action items 1/3/7 above were actually built (see `sharing/README.md` and `mobile/README.md`'s own follow-ups) and items 4/5 turned out to be pure App Store Connect *configuration* — clicking through Apple's own web forms with a paid account's login — not something buildable in this repo at all. Nothing here can be submitted or tested live yet: this app has no paid Apple Developer Program membership (the same blocker that's kept Sign in with Apple disabled all along), so App Store Connect itself isn't reachable yet. What follows is the answer key to have ready the day that membership exists, grounded in this app's actual, current feature set (confirmed against the real code, not guessed) — not a redo of the analysis at submission time.
+
+### 8.1 App Privacy "Nutrition Label" — exact declarations
+
+App Store Connect's own flow (My App → App Privacy → Get Started → "Yes, we collect data" → pick each data type → for each: purpose(s), linked to identity?, used to track?). Declare exactly these four, nothing else:
+
+| Data type | Collected? | Linked to identity? | Used to track you? | Why |
+|---|---|---|---|---|
+| Contact Info → **Email Address** | Yes | **Yes** | No | Account creation/sign-in (`sharing/app/main.py`'s `SignupBody`) |
+| Location → **Precise Location** | Yes | **Yes** | No | Self-display, directions, live sharing, hazard tagging — tied to whichever account/session is active |
+| Identifiers → **User ID** | Yes | **Yes** | No | The internal `profiles.id`/session token model |
+| User Content → **Other User Content** | Yes | **Yes** | No | Hazard reports and POI corrections — attributable to a session at submission time even though hazard reports themselves are publicly anonymous |
+
+Every row is "Linked to You" because everything ties back to an active account/session at the point of collection, even where the *public-facing* data (a hazard report) doesn't show a name. **Nothing** gets "Used to Track You" — that flag is specifically about linking with a *third party's* data for ads/measurement, and this app has zero third-party SDKs (confirmed by grepping `mobile/package.json`/`ios/Podfile.lock` before this whole research pass started) — leave every purpose checkbox on "App Functionality" only, never "Third-Party Advertising" or "Analytics." Don't declare Health, Financial Info, Browsing/Search History, Contacts, or Diagnostics — none are collected.
+
+### 8.2 Age rating questionnaire — exact answers
+
+Apple's Sept 2025 overhaul (confirmed live from `developer.apple.com/news`) replaced 12+/17+ with 13+/16+/18+ and added mandatory capability questions on top of the older content-frequency questions. Two different kinds of question to expect:
+
+**The classic content-frequency questions** (violence, sexual content, profanity, alcohol/drugs, gambling, horror, mature themes, etc. — exact current wording not independently re-verified this pass, but this category of question predates the 2025 overhaul and is well-established): answer **"None"** to every one. This app is a plain navigation/utility map with curated tourism content and short free-text hazard notes (now filtered — see `sharing/app/main.py`'s `contains_blocked_content`) — nothing in it depicts or references any of these categories.
+
+**The new capability questions** (confirmed added in the Sept 2025 overhaul):
+- **"Messaging and Chat" (direct user-to-user communication)**: answer **Yes** — live location sharing (`sharing/README.md`'s Profile section, `useSharing.ts`) is a real-time, user-to-user data flow, even though it's code-based rather than a friend-graph message.
+- **"User-Generated Content" (broadly distributed user-created content)**: answer **Yes** — hazard reports are live, unmoderated-at-submission-time, and visible to any user in range.
+
+Given both are "Yes," expect the questionnaire to land on **13+** — 4+/9+ specifically restrict or exclude open messaging and UGC capabilities, so a lower band isn't available regardless of the content-frequency answers all being "None." Do **not** select the Kids Category / "Made for Kids" checkbox (see §2.8) — this app doesn't target children and shouldn't opt into that stricter, separate rule set.
+
+### 8.3 One adjacent question the same submission flow will also ask: export compliance / encryption
+
+Not one of the two items originally asked about, but it sits in the same App Store Connect submission flow and is worth having the answer ready for rather than getting stuck on it later: Apple asks whether the app uses encryption, and if so, whether it qualifies for the standard exemption. This app's HTTPS network traffic and `bcrypt` password hashing both fall under Apple's standard exemption for encryption that's "ancillary to the app's primary function" (i.e., not itself the product) and uses only Apple's/industry-standard algorithms rather than proprietary crypto — the usual answer for an app like this is **"Yes, uses encryption" → "Only exempt encryption"** (no CCATS/self-classification filing needed). Confirm the exact current wording live when reached, since Apple revises this flow's phrasing periodically, but the substantive answer for this app's actual crypto usage should stay the same.
+
 ## Bottom line
 
 The single biggest, most surprising finding of this whole pass is **§1.11: the app is very likely entirely outside the Belize Data Protection Act's scope right now**, via its own small-business exemption — a much stronger legal footing than "the regulator probably isn't enforcing yet" (§1.6), which was the framing this project had been implicitly relying on. That said, the *practical* priorities (§7) are almost entirely driven by **Apple's own App Store rules**, not Belizean law — a privacy policy, a ToS, UGC report/block controls, and the new age-rating questionnaire are all real, concrete, near-term requirements regardless of what Belizean statute does or doesn't currently reach, and none of them are difficult or expensive to build. Everything genuinely exotic that was checked (GDPR/CCPA extraterritoriality, Belizean business registration, mapping/surveying restrictions, the Belize-Guatemala border) came back low-risk or non-applicable, with the one real exception being a data-licensing landmine (GADM/HDX, §4.4) in a dataset this project already chose not to adopt.
