@@ -66,8 +66,9 @@ Large/regenerable data (`data/raw`, tiles, fonts, satellite, …) is gitignored 
 
 ## Getting started
 
-Requirements: Docker (Colima works — give the VM enough RAM for Nominatim), Python 3, Node.js, and Xcode +
-CocoaPods for the iOS app.
+Requirements (macOS, Apple Silicon): `brew install colima docker node python cocoapods` (give the Colima VM
+enough RAM for Nominatim, e.g. `colima start --memory 8`), plus Xcode for the iOS Simulator. The app is
+built and tested on iOS only; `mobile/android/` is the untouched React Native scaffold and has never been built.
 
 ```bash
 # 1. data

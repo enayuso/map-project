@@ -62,7 +62,9 @@
 
 ## 시작하기
 
-준비물: Docker(Colima 가능 — Nominatim용으로 VM 메모리를 충분히 할당), Python 3, Node.js, iOS 앱용 Xcode + CocoaPods.
+준비물(macOS, Apple Silicon): `brew install colima docker node python cocoapods`(Nominatim용으로 Colima VM 메모리를
+충분히 할당, 예: `colima start --memory 8`)와 iOS 시뮬레이터용 Xcode. 앱은 iOS에서만 빌드·테스트했으며,
+`mobile/android/`는 React Native 기본 스캐폴드 그대로로 빌드해 본 적이 없다.
 
 ```bash
 # 1. 데이터
