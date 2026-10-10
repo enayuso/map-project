@@ -50,7 +50,7 @@
 # avatars, not an uploaded photo — see mobile/README.md's Profile section
 # for the reasoning.
 #
-# Account deletion (added 2026-09-15, researched from the reference system's own real
+# Account deletion (added 2026-09-15, researched from a real production system's
 # withdraw()/UserPurgeScheduler — see mobile/README.md's Profile section)
 # is a two-stage soft delete, not an immediate DELETE:
 # - DELETE /profile sets deleted_at and immediately anonymizes every auth
@@ -92,7 +92,7 @@
 #   "without undue delay" once data's no longer needed, with no numeric
 #   figure attached, unlike Korea's PIPA (which is where the reference system's own
 #   30-day figure actually comes from). 30 days here is simply "the same
-#   the reference system number, kept for its own UX/safety-net merits" (a brief window
+#   reference-system number, kept for its own UX/safety-net merits" (a brief window
 #   to recover from an accidental or coerced deletion before data is
 #   actually gone) — not a claim that Belizean law requires it.
 # - No purged_date/distributed-lock machinery like the reference system's
